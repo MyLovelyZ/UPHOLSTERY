@@ -3,6 +3,11 @@
 	Server-side handler for the laptop browser.
 	Creates LaptopRemotes, manages the Talkogram DataStore feed,
 	and handles job acceptance + result submission (auto-post creation).
+
+	Job board: one global pool shared by all players.
+	Generated on server start; refreshed every replenishMin–replenishMax seconds.
+	When a player accepts a job it is removed from the pool immediately and
+	all clients are notified to refresh their board.
 ]]
 
 local Players           = game:GetService("Players")
@@ -11,6 +16,16 @@ local DataStoreService  = game:GetService("DataStoreService")
 
 local GameConfig  = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local TIER_TITLES = GameConfig.Talkogram.tierTitles
+
+local RadiantJobGenerator = require(script.Parent:WaitForChild("RadiantJobGenerator", 10)
+	or error("[LaptopData] RadiantJobGenerator not found in ServerScriptService — did Rojo sync?"))
+
+-- ── Global job pool ───────────────────────────────────────────────────────
+
+local _globalJobPool   = {}  -- jobs available on the board
+local _activeJobs      = {}  -- [jobId] = { job=job, player=player }  (in-progress)
+local _playerActiveJob = {}  -- [player] = jobId
+local _nextJobId       = 1
 
 -- ── Remote setup ──────────────────────────────────────────────────────────
 
@@ -42,7 +57,8 @@ local RequestInventory = makeRemoteFunction("RequestInventory")
 local PurchaseTool     = makeRemote("PurchaseTool")
 local SubmitJobResult  = makeRemote("SubmitJobResult")
 
-local AbandonJob = makeRemote("AbandonJob")
+local AbandonJob      = makeRemote("AbandonJob")
+local JobBoardRefresh = makeRemote("JobBoardRefresh")
 
 -- Teleport events (fired by LocationManager; listed here so the folder is complete)
 makeRemote("TeleportToLocation")
@@ -53,96 +69,18 @@ makeRemote("StartMinigame")
 
 -- ── LocationManager ───────────────────────────────────────────────────────
 -- Required after remotes are created so LocationManager can WaitForChild on them.
-local LocationManager = require(script.Parent:WaitForChild("LocationManager", 10) or error("[LaptopData] LocationManager ModuleScript not found in ServerScriptService — did Rojo sync?"))
+local LocationManager = require(script.Parent:WaitForChild("LocationManager", 10)
+	or error("[LaptopData] LocationManager ModuleScript not found in ServerScriptService — did Rojo sync?"))
 
 -- ── DataStore ─────────────────────────────────────────────────────────────
 
 local FeedStore = DataStoreService:GetDataStore("TalkogramFeed")
 
--- Session-local posts for the "Server" filter; lost on server shutdown
-local _serverPosts = {}
-
--- Session-local comment store; lost on server restart
+local _serverPosts   = {}
 local _extraComments = {}
 
--- ── Job data ──────────────────────────────────────────────────────────────
+-- ── Fallback Talkogram feed ───────────────────────────────────────────────
 
-local STUB_JOBS = {
-	{
-		id        = 1,
-		name      = "Two Seater Sofa",
-		details   = "Replace worn seat padding and re-stitch the seam",
-		tier      = "Starter",
-		pay       = 120,
-		followers = 8,
-		prestige  = false,
-		imageId   = 0,
-		furniture = { "TwoSofa" },
-		minigames = { "TackRemoval", "SeamStitching" },
-	},
-	{
-		id        = 2,
-		name      = "Velvet Loveseat",
-		details   = "Full re-upholster with client fabric",
-		tier      = "Mid",
-		pay       = 340,
-		followers = 25,
-		prestige  = false,
-		imageId   = 0,
-		furniture = { "VelvetLoveseat" },
-		minigames = { "SeamStitching" },
-	},
-	{
-		id        = 3,
-		name      = "Ottoman Suite",
-		details   = "Prestige: sofa + ottoman, full 3-game chain",
-		tier      = "Premium",
-		pay       = 800,
-		followers = 60,
-		prestige  = true,
-		imageId   = 0,
-		furniture = { "TwoSofa", "TwoSofa" },
-		minigames = { "TackRemoval", "FoamPadding", "StapleGunning" },
-	},
-	{
-		id        = 4,
-		name      = "Bar Stool Set ×4",
-		details   = "Matching staple-gun finish required",
-		tier      = "Mid",
-		pay       = 210,
-		followers = 14,
-		prestige  = false,
-		imageId   = 0,
-		furniture = { "BarStool" },
-		minigames = { "StapleGunning" },
-	},
-	{
-		id        = 5,
-		name      = "Antique Armchair",
-		details   = "Delicate fabric — Fragile modifier",
-		tier      = "Premium",
-		pay       = 560,
-		followers = 38,
-		prestige  = false,
-		imageId   = 0,
-		furniture = { "Armchair" },
-		minigames = { "FoamPadding" },
-	},
-	{
-		id        = 6,
-		name      = "Living Room Refresh",
-		details   = "Three-seater sofa + ottoman — full suite",
-		tier      = "Mid",
-		pay       = 480,
-		followers = 35,
-		prestige  = false,
-		imageId   = 0,
-		furniture = { "ThreeSofa", "Ottoman" },
-		minigames = { "TackRemoval", "FoamPadding" },
-	},
-}
-
--- Fallback feed shown when DataStore is empty (e.g. first-ever server)
 local STUB_FEED = {
 	{
 		id       = 1,
@@ -162,7 +100,7 @@ local STUB_FEED = {
 		imageId  = 0,
 		likes    = 12,
 		comments = {
-			{ author = "VelvetVibes", text = "Prestige work!!" },
+			{ author = "VelvetVibes", text = "Incredible craftsmanship!!" },
 		},
 	},
 	{
@@ -185,17 +123,40 @@ local STUB_FEED = {
 	},
 }
 
--- ── Helpers ───────────────────────────────────────────────────────────────
+-- ── Pool management ───────────────────────────────────────────────────────
+
+local function generateGlobalPool()
+	local cfg         = GameConfig.JobBoard
+	local playerCount = math.max(1, #Players:GetPlayers())
+	local lo          = math.floor(playerCount * cfg.poolSizePerPlayer.min)
+	local hi          = math.ceil(playerCount  * cfg.poolSizePerPlayer.max)
+	local count       = math.clamp(math.random(lo, hi), cfg.poolSizeMin, cfg.poolSizeMax)
+	local jobs        = RadiantJobGenerator.Generate(count, LocationManager.GetAvailableTiers())
+
+	-- Assign server-unique IDs to each job in the batch
+	for _, job in ipairs(jobs) do
+		job.id      = _nextJobId
+		_nextJobId = _nextJobId + 1
+	end
+
+	_globalJobPool = jobs
+	JobBoardRefresh:FireAllClients()
+	print(("[LaptopData] Global pool refreshed: %d jobs"):format(#jobs))
+end
 
 local function findJobById(jobId)
-	for _, job in ipairs(STUB_JOBS) do
+	-- Active (in-progress) jobs take priority
+	local entry = _activeJobs[jobId]
+	if entry then return entry.job end
+	-- Search available pool
+	for _, job in ipairs(_globalJobPool) do
 		if job.id == jobId then return job end
 	end
 	return nil
 end
 
--- Persists a post to DataStore (GlobalFeed key) and prepends it to the
--- server-local list. Caps the global feed at 100 entries.
+-- ── DataStore helpers ─────────────────────────────────────────────────────
+
 local function savePost(post)
 	table.insert(_serverPosts, 1, post)
 
@@ -214,7 +175,6 @@ local function savePost(post)
 	end
 end
 
--- Returns the global DataStore feed, falling back to stub data if empty.
 local function loadGlobalFeed()
 	local ok, result = pcall(function()
 		return FeedStore:GetAsync("GlobalFeed")
@@ -227,12 +187,11 @@ end
 
 -- ── Remote handlers ───────────────────────────────────────────────────────
 
+-- Returns the current global pool (all available jobs, same for every player).
 RequestJobs.OnServerInvoke = function(_player)
-	return STUB_JOBS
+	return _globalJobPool
 end
 
--- mode = "global" → DataStore feed (fallback: stubs)
--- mode = "server" → session-only _serverPosts
 RequestFeed.OnServerInvoke = function(_player, mode)
 	if mode == "server" then
 		return _serverPosts
@@ -242,7 +201,6 @@ RequestFeed.OnServerInvoke = function(_player, mode)
 end
 
 RequestPost.OnServerInvoke = function(_player, postId)
-	-- Stub feed (numeric IDs 1–4)
 	if type(postId) == "number" then
 		for _, post in ipairs(STUB_FEED) do
 			if post.id == postId then
@@ -268,9 +226,7 @@ RequestPost.OnServerInvoke = function(_player, postId)
 		end
 	end
 
-	-- Session posts and global DataStore posts (string IDs)
 	if type(postId) == "string" then
-		-- Check in-memory server posts first (no DataStore call needed)
 		for _, post in ipairs(_serverPosts) do
 			if post.id == postId then
 				local result = {
@@ -291,7 +247,6 @@ RequestPost.OnServerInvoke = function(_player, postId)
 			end
 		end
 
-		-- Fall back to scanning the global DataStore feed
 		local ok, globalFeed = pcall(function()
 			return FeedStore:GetAsync("GlobalFeed")
 		end)
@@ -322,45 +277,124 @@ RequestPost.OnServerInvoke = function(_player, postId)
 end
 
 AcceptJob.OnServerEvent:Connect(function(player, jobId)
-	local job = findJobById(jobId)
-	if not job then
-		warn("[LaptopData] AcceptJob: unknown jobId", jobId)
+	if _playerActiveJob[player] then
+		warn("[LaptopData] AcceptJob: player", player.Name, "already has an active job")
 		return
 	end
+
+	-- Find job in the available pool
+	local jobIndex = nil
+	local job      = nil
+	for i, j in ipairs(_globalJobPool) do
+		if j.id == jobId then
+			jobIndex = i
+			job      = j
+			break
+		end
+	end
+
+	if not job then
+		warn("[LaptopData] AcceptJob: jobId", jobId, "not in pool for player", player.Name)
+		JobBoardRefresh:FireClient(player)
+		return
+	end
+
+	-- Remove from pool and move to active tracking
+	table.remove(_globalJobPool, jobIndex)
+	_activeJobs[job.id]      = { job = job, player = player }
+	_playerActiveJob[player] = job.id
+
 	local ok = LocationManager.Assign(player, job)
-	if not ok then return end  -- LocationFull already fired inside Assign
+	if not ok then
+		-- Assignment failed (e.g. no slots free) — put job back in pool
+		table.insert(_globalJobPool, job)
+		_activeJobs[job.id]      = nil
+		_playerActiveJob[player] = nil
+		return
+	end
+
+	-- Notify all clients so the accepted job disappears from their board
+	JobBoardRefresh:FireAllClients()
 end)
 
--- Client fires this after MinigameRunner completes; triggers auto-post creation.
 SubmitJobResult.OnServerEvent:Connect(function(player, jobId, result)
-	if not TIER_TITLES[result] then return end
+	local entry = _activeJobs[jobId]
+	if not entry or entry.player ~= player then
+		warn("[LaptopData] SubmitJobResult: invalid jobId", jobId, "for player", player.Name)
+		LocationManager.Release(player)
+		return
+	end
 
-	local job = findJobById(jobId)
-	if not job then return end
+	local job = entry.job
+	_activeJobs[jobId]       = nil
+	_playerActiveJob[player] = nil
 
-	local timestamp = os.time()
-	local postId    = tostring(player.UserId) .. "_" .. tostring(timestamp)
+	local followerGain = 0
+	if TIER_TITLES[result] then
+		local pd = player:FindFirstChild("PlayerData")
+		if pd then
+			local usdVal = pd:FindFirstChild("usd")
+			if usdVal then
+				usdVal.Value = usdVal.Value + job.pay
+			end
 
-	local post = {
-		id        = postId,
-		author    = player.Name,
-		authorId  = player.UserId,
-		jobId     = job.id,
-		jobName   = job.name,
-		imageId   = job.imageId,
-		title     = string.format(TIER_TITLES[result], job.name),
-		result    = result,
-		timestamp = timestamp,
-		likes     = 0,
-		comments  = {},
-	}
+			local resultBonus = GameConfig.Followers.minigameBonus[result] or 0
+			followerGain      = math.floor(job.followers * (1 + resultBonus))
+			local follVal     = pd:FindFirstChild("followers")
+			if follVal then
+				follVal.Value = follVal.Value + followerGain
+			end
 
-	savePost(post)
-	print("[LaptopData] Auto-post by", player.Name, "—", post.title)
+			local repCfg = GameConfig.Reputation
+			local repVal = pd:FindFirstChild("reputation")
+			if repVal then
+				local delta = repCfg.gain[result] or 0
+				repVal.Value = math.clamp(repVal.Value + delta, repCfg.minValue, repCfg.maxValue)
+			end
+		end
+
+		local timestamp = os.time()
+		local postId    = tostring(player.UserId) .. "_" .. tostring(timestamp)
+
+		local post = {
+			id        = postId,
+			author    = player.Name,
+			authorId  = player.UserId,
+			jobId     = job.id,
+			jobName   = job.name,
+			imageId   = job.imageId,
+			title     = string.format(TIER_TITLES[result], job.name),
+			result    = result,
+			timestamp = timestamp,
+			likes     = 0,
+			comments  = {},
+		}
+
+		savePost(post)
+		print(("[LaptopData] %s | Pay +$%d | Followers +%d | %s"):format(
+			player.Name, job.pay, followerGain, result
+		))
+	end
+
 	LocationManager.Release(player)
 end)
 
 AbandonJob.OnServerEvent:Connect(function(player)
+	local jobId = _playerActiveJob[player]
+	if jobId then
+		_activeJobs[jobId]       = nil
+		_playerActiveJob[player] = nil
+	end
+
+	local pd = player:FindFirstChild("PlayerData")
+	if pd then
+		local repVal = pd:FindFirstChild("reputation")
+		if repVal then
+			local repCfg = GameConfig.Reputation
+			repVal.Value = math.clamp(repVal.Value + repCfg.gain.Abandon, repCfg.minValue, repCfg.maxValue)
+		end
+	end
+
 	LocationManager.Release(player)
 	print("[LaptopData] Job abandoned by", player.Name)
 end)
@@ -386,4 +420,24 @@ end
 
 PurchaseTool.OnServerEvent:Connect(function(player, toolName)
 	print("[LaptopData] PurchaseTool from", player.Name, "tool =", toolName)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	local jobId = _playerActiveJob[player]
+	if jobId then
+		_activeJobs[jobId]       = nil
+		_playerActiveJob[player] = nil
+	end
+end)
+
+-- ── Initial pool + periodic refresh ──────────────────────────────────────
+
+generateGlobalPool()
+
+task.spawn(function()
+	while true do
+		local cfg = GameConfig.JobBoard
+		task.wait(math.random(cfg.replenishMin, cfg.replenishMax))
+		generateGlobalPool()
+	end
 end)

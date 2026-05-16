@@ -27,6 +27,7 @@ local _result      = "Pass"
 local _connections = {}
 local _instances   = {}
 local _done        = nil
+local _finished    = false
 
 local function disconnect()
 	for _, c in ipairs(_connections) do c:Disconnect() end
@@ -105,10 +106,10 @@ end
 
 -- ── UI builder ────────────────────────────────────────────────────────────
 
-local function buildUI(container, zones, goodW, perfW, stapleCount)
+local function buildUI(container, zones, goodW, perfW, stapleCount, timeLimit)
 	-- HUD
 	local timerPill = makePill(container, 100, 48, 0.03, 0.03, 0, 0)
-	local timerLabel = makeLabel(timerPill, tostring(cfg.timeLimit) .. "s", 30, COL_WHITE)
+	local timerLabel = makeLabel(timerPill, tostring(timeLimit) .. "s", 30, COL_WHITE)
 	timerLabel.TextXAlignment = Enum.TextXAlignment.Center
 
 	local titlePill = makePill(container, 300, 40, 0.5, 0.03, 0.5, 0)
@@ -229,11 +230,14 @@ function StapleGunning.Start(container, config)
 	_connections = {}
 	_instances   = {}
 	_done        = Instance.new("BindableEvent")
+	_finished    = false
 
-	local stapleCount = math.random(cfg.stapleCountMin, cfg.stapleCountMax)
-	local goodW       = cfg.goodZoneWidth
-	local perfW       = cfg.perfectZoneWidth
-	local timeLimit   = cfg.timeLimit
+	local p = config.params or cfg
+
+	local stapleCount = math.random(p.stapleCountMin, p.stapleCountMax)
+	local goodW       = p.goodZoneWidth
+	local perfW       = p.perfectZoneWidth
+	local timeLimit   = p.timeLimit
 
 	if config.fragile then
 		goodW = goodW * mgCfg.fragileMultiplier
@@ -241,23 +245,22 @@ function StapleGunning.Start(container, config)
 	end
 
 	-- Generate random zone positions for this run
-	local zones = generateZones(cfg.zoneCount, goodW)
+	local zones = generateZones(p.zoneCount, goodW)
 
 	local bar, fireBtn, scoreLabel, timerLabel, feedback =
-		buildUI(container, zones, goodW, perfW, stapleCount)
+		buildUI(container, zones, goodW, perfW, stapleCount, timeLimit)
 
 	-- Randomise bar start
 	local barPos       = math.random() * 0.8 + 0.1
 	local direction    = math.random() < 0.5 and 1 or -1
-	local currentSpeed = cfg.barSpeed
+	local currentSpeed = p.barSpeed
 	local staplesFired = 0
 	local score        = 0
 	local maxScore     = stapleCount * 2
-	local finished     = false
 
 	local lastTime = os.clock()
 	local hbConn = RunService.Heartbeat:Connect(function()
-		if finished then return end
+		if _finished then return end
 		local now = os.clock()
 		local dt  = now - lastTime
 		lastTime  = now
@@ -272,9 +275,9 @@ function StapleGunning.Start(container, config)
 		local ratio = maxScore > 0 and (score / maxScore) or 0
 		if score == 0 then
 			_result = "Fail"
-		elseif ratio >= cfg.perfectMinRatio then
+		elseif ratio >= p.perfectMinRatio then
 			_result = "Perfect"
-		elseif ratio >= cfg.goodMinRatio then
+		elseif ratio >= p.goodMinRatio then
 			_result = "Good"
 		else
 			_result = "Pass"
@@ -282,8 +285,8 @@ function StapleGunning.Start(container, config)
 	end
 
 	local function finishGame()
-		if finished then return end
-		finished = true
+		if _finished then return end
+		_finished = true
 		disconnect()
 		resolveResult()
 		task.wait(0.4)
@@ -291,7 +294,7 @@ function StapleGunning.Start(container, config)
 	end
 
 	local fireConn = fireBtn.Activated:Connect(function()
-		if finished then return end
+		if _finished then return end
 
 		-- Check all zones: perfect takes priority over good
 		local pts = 0
@@ -323,10 +326,10 @@ function StapleGunning.Start(container, config)
 		-- SFX
 		if pts == 2 then
 			SFX.Play("StaplePerfect")
-			currentSpeed = currentSpeed + cfg.barSpeedRampUp
+			currentSpeed = currentSpeed + p.barSpeedRampUp
 		elseif pts == 1 then
 			SFX.Play("StapleGood")
-			currentSpeed = currentSpeed + cfg.barSpeedRampUp * 0.5
+			currentSpeed = currentSpeed + p.barSpeedRampUp * 0.5
 		else
 			SFX.Play("StapleMiss")
 		end
@@ -338,7 +341,7 @@ function StapleGunning.Start(container, config)
 		end)
 
 		if staplesFired >= stapleCount then
-			finished = true
+			_finished = true
 			disconnect()
 			resolveResult()
 			task.wait(0.5)
@@ -350,13 +353,13 @@ function StapleGunning.Start(container, config)
 	-- Global timer
 	task.spawn(function()
 		local remaining = timeLimit
-		while remaining > 0 and not finished do
+		while remaining > 0 and not _finished do
 			task.wait(1)
 			remaining = remaining - 1
 			timerLabel.Text = remaining .. "s"
 			if remaining <= 7 then timerLabel.TextColor3 = COL_DANGER end
 		end
-		if not finished then finishGame() end
+		if not _finished then finishGame() end
 	end)
 
 	_done.Event:Wait()
@@ -378,6 +381,11 @@ function StapleGunning.Cleanup()
 		_done:Destroy()
 		_done = nil
 	end
+end
+
+function StapleGunning.Cancel()
+	_finished = true
+	if _done then _done:Fire() end
 end
 
 return StapleGunning

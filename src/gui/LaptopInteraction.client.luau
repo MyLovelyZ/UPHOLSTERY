@@ -9,8 +9,9 @@
 	    → LaptopBrowser listens to this and starts the boot sequence
 ]]
 
-local Players    = game:GetService("Players")
-local RunService = game:GetService("RunService")
+local Players               = game:GetService("Players")
+local RunService            = game:GetService("RunService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local player    = Players.LocalPlayer
 local PlayerGui = player:WaitForChild("PlayerGui")
@@ -57,6 +58,7 @@ local function setupLaptop(laptopModel)
 	prompt.HoldDuration          = 0
 	prompt.RequiresLineOfSight   = false
 	prompt.Exclusivity           = Enum.ProximityPromptExclusivity.AlwaysShow
+	prompt.Style                 = Enum.ProximityPromptStyle.Custom
 
 	prompt.Triggered:Connect(function(triggeringPlayer)
 		if triggeringPlayer ~= player then return end
@@ -83,6 +85,12 @@ workspace.ChildAdded:Connect(function(child)
 	if child.Name == "Laptop" then
 		setupLaptop(child)
 	end
+end)
+
+-- ── Suppress all proximity prompts while the laptop UI is open ───────────
+
+LaptopGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+	ProximityPromptService.Enabled = not LaptopGui.Enabled
 end)
 
 -- ── Distance check: close UI if player walks away from ALL laptops ────────

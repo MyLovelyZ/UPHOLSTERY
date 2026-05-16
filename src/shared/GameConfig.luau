@@ -12,7 +12,6 @@ return {
 		fragileMultiplier = 0.6,
 
 		-- Additional tolerance granted by tool upgrades (additive, 0.0–1.0 range).
-		-- 0.0 = no bonus, 0.2 = 20% wider tolerance.
 		toolToleranceBonus = {
 			curvedNeedle  = 0.20,   -- widens SeamStitching deviation tolerance
 			foamPressKit  = 0.20,   -- widens FoamPadding snap tolerance
@@ -23,15 +22,12 @@ return {
 	-- TACK REMOVAL  (osu!-style)
 	-- =========================================================
 	TackRemoval = {
-		tackCountMin       = 8,    -- minimum tacks per run
-		tackCountMax       = 14,   -- maximum tacks per run
-		approachTime       = 2.0,  -- seconds for approach ring to shrink to tack
-		tackSpawnGap       = 0.85, -- seconds between each tack appearing
-		-- Timing windows: progress = elapsed / approachTime at moment of click (0→1)
-		perfectMinProgress = 0.72, -- click in last 28% of approach = perfect (3 pts)
-		goodMinProgress    = 0.42, -- click in last 58% of approach = good    (2 pts)
-		--                           click earlier = ok (1 pt), no click = miss (0 pts)
-		-- Result thresholds (score / maxScore where maxScore = tackCount * 3)
+		tackCountMin       = 8,
+		tackCountMax       = 14,
+		approachTime       = 2.0,
+		tackSpawnGap       = 0.85,
+		perfectMinProgress = 0.72,
+		goodMinProgress    = 0.42,
 		perfectMinScore    = 0.78,
 		goodMinScore       = 0.45,
 	},
@@ -42,14 +38,13 @@ return {
 	StapleGunning = {
 		stapleCountMin   = 6,
 		stapleCountMax   = 10,
-		zoneCount        = 3,      -- number of zone pairs scattered on the track
-		goodZoneWidth    = 0.11,   -- outer green zone width (smaller = harder)
-		perfectZoneWidth = 0.050,  -- inner gold zone width (very narrow)
-		barSpeed         = 0.62,   -- fast base speed
-		barSpeedRampUp   = 0.040,  -- speed added per successful staple
+		zoneCount        = 3,
+		goodZoneWidth    = 0.11,
+		perfectZoneWidth = 0.050,
+		barSpeed         = 0.62,
+		barSpeedRampUp   = 0.040,
 		timeLimit        = 30,
-		-- Score: perfect = 2 pts, good = 1 pt, miss = 0. maxScore = stapleCount * 2
-		perfectMinRatio  = 0.75,   -- relaxed slightly since zones are harder
+		perfectMinRatio  = 0.75,
 		goodMinRatio     = 0.38,
 	},
 
@@ -57,10 +52,10 @@ return {
 	-- SEAM STITCHING  (free drag, no snap)
 	-- =========================================================
 	SeamStitching = {
-		segmentCountMin         = 5,    -- longer path
+		segmentCountMin         = 5,
 		segmentCountMax         = 7,
-		timePerSegment          = 9,    -- seconds per segment (total = segCount * timePerSegment)
-		deviationTolerance      = 32,   -- slightly more forgiving since no snap
+		timePerSegment          = 9,
+		deviationTolerance      = 32,
 		perfectMaxDeviationFrac = 0.35,
 		goodMaxDeviationFrac    = 0.70,
 		trailLength             = 36,
@@ -70,61 +65,85 @@ return {
 	-- FOAM PADDING  (random shapes)
 	-- =========================================================
 	FoamPadding = {
-		pieceCount      = 3,
-		timeLimit       = 40,
-		snapTolerance   = 32,
-		-- Result thresholds (ratio of pieces correctly snapped)
+		pieceCount      = 5,
+		timeLimit       = 50,
 		perfectMinRatio = 1.0,
-		goodMinRatio    = 0.67,
+		goodMinRatio    = 0.75,
 	},
 
 	-- =========================================================
-	-- JOB ECONOMY  (referenced later by the Job System)
+	-- JOB ECONOMY
 	-- =========================================================
 	Economy = {
 		payByTier = {
-			Starter  = { min = 50,    max = 150   },
-			Mid      = { min = 200,   max = 500   },
-			Premium  = { min = 600,   max = 1200  },
-			Prestige = { min = 1500,  max = 3000  },
+			Starter   = { min = 50,    max = 150   },
+			Mid       = { min = 200,   max = 500   },
+			Premium   = { min = 600,   max = 1200  },
+			Prestige  = { min = 1500,  max = 3000  },
+			Exclusive = { min = 3500,  max = 7000  },
+			Elite     = { min = 7500,  max = 15000 },
+			Special   = { min = 15000, max = 30000 },
 		},
-		premiumPayMultiplierMin = 1.8,
-		premiumPayMultiplierMax = 2.5,
-		hotJobPayMultiplier     = 3.0,
-		dailyOverheadCoins      = 120,
+		hotJobPayMultiplier  = 3.0,
+		dailyOverheadCoins   = 120,
 	},
 
 	-- =========================================================
-	-- FOLLOWER SYSTEM  (referenced later by the Follower module)
+	-- FOLLOWER SYSTEM
 	-- =========================================================
 	Followers = {
-		baseGainPerJob = 10,
+		gainByTier = {
+			Starter   = { min = 6,    max = 15   },
+			Mid       = { min = 18,   max = 35   },
+			Premium   = { min = 45,   max = 80   },
+			Prestige  = { min = 90,   max = 150  },
+			Exclusive = { min = 180,  max = 320  },
+			Elite     = { min = 400,  max = 650  },
+			Special   = { min = 800,  max = 1200 },
+		},
 		minigameBonus = {
 			Pass    = 0.00,
 			Good    = 0.10,
 			Perfect = 0.25,
 		},
-		premiumJobBonus  = 0.40,
-		hotJobBonus      = 0.75,
-		storyJobBonus    = 0.20,
+		hotJobBonus   = 0.75,
+		storyJobBonus = 0.20,
 	},
 
 	-- =========================================================
-	-- LIVE JOB BOARD  (referenced later by the Job Board module)
+	-- LIVE JOB BOARD
 	-- =========================================================
 	JobBoard = {
-		poolSizeMin        = 8,
-		poolSizeMax        = 12,
-		poolSizeLowPlayer  = { min = 4, max = 6 },  -- fewer than 4 active players
-		lowPlayerThreshold = 4,
-		replenishMin       = 90,    -- seconds between new job generation (min)
-		replenishMax       = 120,   -- seconds between new job generation (max)
-		tombstoneDuration  = 3,     -- seconds "Taken by X" remains visible
-		premiumRollChance  = 1/6,   -- ~16.7% of generated jobs are Premium
-		hotJobIntervalMin  = 5 * 60,  -- 5 minutes in seconds
-		hotJobIntervalMax  = 8 * 60,  -- 8 minutes in seconds
-		hotJobCountdown    = 10,    -- seconds of countdown before Hot Job is claimable
-		disconnectGraceSec = 60,    -- seconds before abandoned job re-enters pool
+		poolSizeMin       = 4,    -- floor: solo player still gets some variety
+		poolSizeMax       = 12,   -- cap: full server
+		poolSizePerPlayer = { min = 1.5, max = 2.5 },  -- jobs generated per player in server
+		replenishMin      = 15,   -- seconds between global pool refreshes (min)
+		replenishMax      = 30,   -- seconds between global pool refreshes (max)
+		tombstoneDuration = 3,    -- seconds "Taken by X" remains visible (client-side)
+		hotJobIntervalMin  = 5 * 60,
+		hotJobIntervalMax  = 8 * 60,
+		hotJobCountdown    = 10,
+		disconnectGraceSec = 60,
+	},
+
+	-- =========================================================
+	-- JOB TIER RARITY  (relative weights for the global board)
+	-- All players see the same pool; higher tiers appear less often.
+	-- These are summed and treated as a weighted random distribution.
+	-- =========================================================
+	-- Relative weights for the global job board roll.
+	-- Non-integer weights are fine — the generator sums them for a float roll.
+	-- With a 10-job pool: ~5 Starter, ~2.8 Mid, ~1.3 Premium, ~0.6 Prestige,
+	-- ~0.2 Exclusive (1 per ~5 refreshes), ~0.07 Elite (1 per ~14 refreshes),
+	-- ~0.03 Special (1 per ~33 refreshes = roughly once per 8–16 min).
+	JobTierRarity = {
+		Starter   = 50,
+		Mid       = 28,
+		Premium   = 13,
+		Prestige  =  6,
+		Exclusive =  2,
+		Elite     =  0.7,
+		Special   =  0.3,
 	},
 
 	-- =========================================================
@@ -133,8 +152,8 @@ return {
 	Talkogram = {
 		commentMaxLength    = 80,
 		commentsPerPlayer   = 3,
-		popularLikeCount    = 5,           -- likes needed for "Popular" tag
-		bestPostIntervalSec = 2 * 60 * 60, -- 2 hours
+		popularLikeCount    = 5,
+		bestPostIntervalSec = 2 * 60 * 60,
 		tierTitles = {
 			Perfect = "Absolutely nailed this %s. Client loved it.",
 			Good    = "Pretty happy with how this %s turned out.",
@@ -146,13 +165,6 @@ return {
 	-- CLIENT LOCATION SYSTEM
 	-- =========================================================
 	Locations = {
-		slotCount = 6,  -- slots per location type; matches 6-player server cap
-		byTier = {      -- append names to any list to add more locations; no logic changes needed
-			Starter  = {"StudioApartment"},
-			Mid      = {"RegularHouse", "BigStudioApartment"},
-			Premium  = {"LuxuryHome"},
-			Prestige = {"SupercarGarage"},
-		},
 		fabricColors = {
 			Color3.fromRGB(30,  50,  120),
 			Color3.fromRGB(120, 30,  50),
@@ -182,13 +194,58 @@ return {
 	},
 
 	-- =========================================================
+	-- REPUTATION  (0–5 float; tracks job performance for Talkogram)
+	-- No longer gates job tiers — purely a player stat.
+	-- =========================================================
+	Reputation = {
+		startValue = 0.0,
+		maxValue   = 5.0,
+		minValue   = 0.0,
+		gain = {
+			Perfect  =  0.20,
+			Good     =  0.10,
+			Pass     =  0.05,
+			Fail     = -0.10,
+			Abandon  = -0.15,
+		},
+	},
+
+	-- =========================================================
+	-- DIFFICULTY PRESETS
+	-- Each entry is a partial override — only fields that differ from base
+	-- GameConfig values are listed. Missing fields fall back to base.
+	-- =========================================================
+	DifficultyPresets = {
+		Easy = {
+			TackRemoval   = { tackCountMin=4,  tackCountMax=7,  approachTime=2.6,
+			                  perfectMinProgress=0.65, goodMinProgress=0.35 },
+			StapleGunning = { stapleCountMin=3, stapleCountMax=5, barSpeed=0.45,
+			                  goodZoneWidth=0.15, perfectZoneWidth=0.07 },
+			SeamStitching = { segmentCountMin=3, segmentCountMax=4,
+			                  deviationTolerance=48, timePerSegment=12 },
+			FoamPadding   = { pieceCount=3, timeLimit=65, perfectMinRatio=1.0, goodMinRatio=0.67 },
+		},
+		Medium = {
+			-- no overrides; base GameConfig values apply
+		},
+		Hard = {
+			TackRemoval   = { tackCountMin=12, tackCountMax=18, approachTime=1.4,
+			                  perfectMinProgress=0.82, goodMinProgress=0.52 },
+			StapleGunning = { stapleCountMin=9, stapleCountMax=14, barSpeed=0.85,
+			                  goodZoneWidth=0.08, perfectZoneWidth=0.035,
+			                  barSpeedRampUp=0.06 },
+			SeamStitching = { segmentCountMin=8, segmentCountMax=12,
+			                  deviationTolerance=20, timePerSegment=7 },
+			FoamPadding   = { pieceCount=7, timeLimit=35, perfectMinRatio=1.0, goodMinRatio=0.80 },
+		},
+	},
+
+	-- =========================================================
 	-- PLAYER HOUSE SYSTEM  (GDD §9 — House Prestige)
 	-- =========================================================
 	PlayerHouses = {
-		slotCount = 6,  -- one house per player slot; matches server cap
-		-- Follower thresholds to reach each tier (index = tier number)
+		slotCount = 6,
 		tierThresholds = { 0, 2000, 10000, 50000 },
-		-- ServerStorage.HouseModels folder names per tier (used by future HousePrestigeManager)
 		tierModelKeys  = { "StarterFlat", "CornerHouse", "WorkshopVilla", "SkylinePenthouse" },
 	},
 }

@@ -18,10 +18,11 @@
 
 local MinigameRunner = {}
 
-local TweenService = game:GetService("TweenService")
-local Lighting     = game:GetService("Lighting")
-local Players      = game:GetService("Players")
-local SFX          = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("SFXPlayer"))
+local TweenService  = game:GetService("TweenService")
+local Lighting      = game:GetService("Lighting")
+local Players       = game:GetService("Players")
+local SFX           = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("SFXPlayer"))
+local GameConfig    = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("GameConfig"))
 
 -- ── Module registry ───────────────────────────────────────────────────────
 local MINIGAME_MODULES = {
@@ -44,6 +45,10 @@ local RESULT_LABELS = {
 	Good    = "GOOD",
 	Perfect = "PERFECT!",
 }
+
+-- ── Cancellation state ───────────────────────────────────────────────────
+local _activeMinigame = nil
+local _isCancelling   = false
 
 -- ── Blur management ───────────────────────────────────────────────────────
 
@@ -140,6 +145,39 @@ local function showResultOverlay(container, result)
 	task.wait(1.1)
 end
 
+-- ── Difficulty param merger ───────────────────────────────────────────────
+-- Merges GameConfig[minigameName] + difficulty overrides into config.params.
+-- Returns config unchanged when no difficulty is set (base values used via cfg).
+
+local function buildParams(minigameName, config)
+	local difficulty = config.difficulty
+	if not difficulty then return config end
+
+	local overrides
+	if type(difficulty) == "string" then
+		local preset = GameConfig.DifficultyPresets[difficulty]
+		if not preset then
+			warn("[MinigameRunner] Unknown difficulty preset: '" .. difficulty .. "'")
+			return config
+		end
+		overrides = preset[minigameName]
+	elseif type(difficulty) == "table" then
+		overrides = difficulty[minigameName]
+	end
+
+	if not overrides then return config end  -- no entry for this minigame → base values
+
+	local base   = GameConfig[minigameName]
+	local params = {}
+	for k, v in pairs(base)      do params[k] = v end
+	for k, v in pairs(overrides) do params[k] = v end
+
+	local merged = {}
+	for k, v in pairs(config) do merged[k] = v end
+	merged.params = params
+	return merged
+end
+
 -- ── Internal helpers ──────────────────────────────────────────────────────
 
 local function requireModule(name)
@@ -150,21 +188,39 @@ end
 
 -- ── Public API ────────────────────────────────────────────────────────────
 
+function MinigameRunner.IsRunning()
+	return _activeMinigame ~= nil
+end
+
+function MinigameRunner.Cancel()
+	if not _activeMinigame then return end
+	_isCancelling = true
+	_activeMinigame.Cancel()
+end
+
 function MinigameRunner.Run(minigameName, config)
+	local merged = buildParams(minigameName, config)
 	local gui, container = buildGui()
 	addBlur()
 	showGui(gui)
 	local minigame = requireModule(minigameName)
+	_activeMinigame = minigame
+	_isCancelling   = false
 
-	minigame.Start(container, config)
+	minigame.Start(container, merged)
 
+	local wasCancelled = _isCancelling
 	local result = minigame.GetResult()
-	showResultOverlay(container, result)
+	if not wasCancelled then
+		showResultOverlay(container, result)
+	end
 	minigame.Cleanup()
 	removeBlur()
 	gui:Destroy()
+	_activeMinigame = nil
+	_isCancelling   = false
 
-	return result
+	return wasCancelled and nil or result
 end
 
 function MinigameRunner.RunChain(minigameNames, config)
@@ -179,12 +235,26 @@ function MinigameRunner.RunChain(minigameNames, config)
 		end
 
 		local minigame = requireModule(name)
-		minigame.Start(container, config)
+		local merged   = buildParams(name, config)
+		_activeMinigame = minigame
+		_isCancelling   = false
+
+		minigame.Start(container, merged)
+
+		local wasCancelled = _isCancelling
 		local result = minigame.GetResult()
+		minigame.Cleanup()
+		_activeMinigame = nil
+		_isCancelling   = false
+
+		if wasCancelled then
+			removeBlur()
+			gui:Destroy()
+			return nil
+		end
+
 		table.insert(results, result)
 		showResultOverlay(container, result)
-		minigame.Cleanup()
-
 		task.wait(0.35)
 	end
 

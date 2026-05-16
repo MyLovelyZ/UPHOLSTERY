@@ -29,6 +29,7 @@ local _connections = {}
 local _instances   = {}
 local _trail       = {}
 local _done        = nil
+local _finished    = false
 
 local function disconnect()
 	for _, c in ipairs(_connections) do c:Disconnect() end
@@ -327,11 +328,14 @@ function SeamStitching.Start(container, config)
 	_instances   = {}
 	_trail       = {}
 	_done        = Instance.new("BindableEvent")
+	_finished    = false
 
-	local segCount     = math.random(cfg.segmentCountMin, cfg.segmentCountMax)
+	local p = config.params or cfg
+
+	local segCount     = math.random(p.segmentCountMin, p.segmentCountMax)
 	local pathSegments = generatePath(segCount)
-	local totalTime    = segCount * cfg.timePerSegment
-	local tolerance    = cfg.deviationTolerance + config.toolBonus * cfg.deviationTolerance
+	local totalTime    = segCount * p.timePerSegment
+	local tolerance    = p.deviationTolerance + config.toolBonus * p.deviationTolerance
 
 	if config.fragile then tolerance = tolerance * mgCfg.fragileMultiplier end
 
@@ -343,23 +347,22 @@ function SeamStitching.Start(container, config)
 	local totalDeviation   = 0
 	local deviationSamples = 0
 	local everDragged      = false
-	local finished         = false
 	local lastStitchSfx    = 0
 
 	timerLabel.Text = tostring(totalTime) .. "s"
 	segLabel.Text   = "1 / " .. segCount
 
 	local function finishGame()
-		if finished then return end
-		finished = true
+		if _finished then return end
+		_finished = true
 		disconnect()
 		local avgFrac = deviationSamples > 0
 			and (totalDeviation / deviationSamples) / tolerance or 0
 		if not everDragged then
 			_result = "Fail"
-		elseif avgFrac <= cfg.perfectMaxDeviationFrac then
+		elseif avgFrac <= p.perfectMaxDeviationFrac then
 			_result = "Perfect"
-		elseif avgFrac <= cfg.goodMaxDeviationFrac then
+		elseif avgFrac <= p.goodMaxDeviationFrac then
 			_result = "Good"
 		else
 			_result = "Pass"
@@ -386,7 +389,7 @@ function SeamStitching.Start(container, config)
 	-- Global countdown timer
 	task.spawn(function()
 		local remaining = totalTime
-		while remaining > 0 and not finished do
+		while remaining > 0 and not _finished do
 			task.wait(1)
 			remaining = remaining - 1
 			timerLabel.Text = remaining .. "s"
@@ -394,12 +397,12 @@ function SeamStitching.Start(container, config)
 				timerLabel.TextColor3 = COL_DANGER
 			end
 		end
-		if not finished then finishGame() end
+		if not _finished then finishGame() end
 	end)
 
 	-- Mouse / touch move — needle follows cursor freely, no snap
 	local moveConn = UserInputService.InputChanged:Connect(function(input)
-		if finished or not isDragging then return end
+		if _finished or not isDragging then return end
 		if input.UserInputType ~= Enum.UserInputType.MouseMovement
 			and input.UserInputType ~= Enum.UserInputType.Touch then return end
 
@@ -485,6 +488,11 @@ function SeamStitching.Cleanup()
 		_done:Destroy()
 		_done = nil
 	end
+end
+
+function SeamStitching.Cancel()
+	_finished = true
+	if _done then _done:Fire() end
 end
 
 return SeamStitching

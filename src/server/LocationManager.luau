@@ -3,21 +3,20 @@
 	ModuleScript — required by LaptopData.server.luau.
 
 	Tracks free/occupied client location slots per location type.
-	On AcceptJob: picks a free slot, clones furniture, randomizes colors, teleports player.
-	On SubmitJobResult: destroys furniture, resets colors, teleports player back to hub.
-
-	Workspace structure expected:
-	  ClientLocations [Folder]
-	    └── StudioApartment [Folder]
-	          ├── Slot_1 [Model]  (Floor, Walls, SpawnPad, FurniturePad)
-	          └── Slot_2 … Slot_6
+	On AcceptJob: picks a free slot, clones the slot template from ServerStorage into
+	  Workspace/ActiveSlots, clones furniture, randomizes colors, teleports player.
+	On SubmitJobResult: destroys the entire slot clone (takes furniture + prompts with it),
+	  teleports player back to hub.
 
 	ServerStorage structure expected:
+	  ClientLocations [Folder]
+	    └── StudioApartment [Folder]   ← Tier="Starter" attribute
+	          ├── Slot_1 [Model]  (Floor, Walls, SpawnPad, FurniturePad_N, Door)
+	          └── Slot_2 … Slot_6
 	  FurnitureModels [Folder]
-	    └── DiningChair [Folder]
+	    └── TwoSofa [Folder]
 	          ├── Damaged_A [Model]  (parts named FabricPart / FramePart)
-	          ├── Damaged_B [Model]
-	          └── Damaged_C [Model]
+	          └── Default   [Model]
 ]]
 
 local Players           = game:GetService("Players")
@@ -43,31 +42,74 @@ local StartMinigame          = remotesFolder:WaitForChild("StartMinigame")
 -- _pool[locationName][slotIndex] = player.UserId (occupied) or nil (free)
 local _pool = {}
 
--- _playerAssignment[player] = { locationName, slotIndex, slotModel, clones, fixedClones, furnitureKeys, doorPrompt }
+-- _slotCounts[locationName] = number of Slot_N templates discovered
+local _slotCounts = {}
+
+-- _locationsByTier[tier] = { locationName, ... }  — built from Tier attribute on each folder
+local _locationsByTier = {}
+
+-- _playerAssignment[player] = { locationName, slotIndex, slotModel, clones, fixedClones, furnitureKeys, repairPrompts, doorPrompt }
 local _playerAssignment = {}
 
--- ── Pool initialisation ───────────────────────────────────────────────────
+-- ── Slot template source + active slot container ──────────────────────────
+-- Templates live in ServerStorage — no Workspace cost until a player needs one.
+-- Active clones are parented into Workspace/ActiveSlots for the job's duration.
 
-local clientLocationsFolder = workspace:FindFirstChild("ClientLocations")
-if not clientLocationsFolder then
-	warn("[LocationManager] No 'ClientLocations' folder in Workspace — teleport disabled")
+local serverLocationsFolder = ServerStorage:FindFirstChild("ClientLocations")
+
+local _activeSlotsFolder = workspace:FindFirstChild("ActiveSlots")
+if not _activeSlotsFolder then
+	_activeSlotsFolder = Instance.new("Folder")
+	_activeSlotsFolder.Name   = "ActiveSlots"
+	_activeSlotsFolder.Parent = workspace
+end
+
+-- ── Pool initialisation ───────────────────────────────────────────────────
+-- Discovers locations dynamically from ServerStorage. Each subfolder must have
+-- a "Tier" string attribute ("Starter" / "Mid" / "Premium" / "Prestige").
+-- Slot count is inferred by counting Slot_N Model children in the template folder.
+
+if not serverLocationsFolder then
+	warn("[LocationManager] No 'ClientLocations' folder in ServerStorage — teleport disabled")
 else
-	for _, locationFolder in ipairs(clientLocationsFolder:GetChildren()) do
-		_pool[locationFolder.Name] = {}
-		for i = 1, Locations.slotCount do
-			_pool[locationFolder.Name][i] = nil
+	for _, locationFolder in ipairs(serverLocationsFolder:GetChildren()) do
+		if locationFolder:IsA("Folder") then
+			local slotCount = 0
+			for _, child in ipairs(locationFolder:GetChildren()) do
+				if child:IsA("Model") then
+					local n = tonumber(child.Name:match("^Slot_(%d+)$"))
+					if n and n > slotCount then slotCount = n end
+				end
+			end
+
+			if slotCount > 0 then
+				_pool[locationFolder.Name]       = {}
+				_slotCounts[locationFolder.Name] = slotCount
+
+				local tier = locationFolder:GetAttribute("Tier")
+				if not tier then
+					warn(("[LocationManager] '%s' has no 'Tier' attribute — defaulting to Starter"):format(locationFolder.Name))
+					tier = "Starter"
+				end
+				if not _locationsByTier[tier] then
+					_locationsByTier[tier] = {}
+				end
+				table.insert(_locationsByTier[tier], locationFolder.Name)
+
+				print(("[LocationManager] Registered '%s' (Tier: %s, %d slots)"):format(locationFolder.Name, tier, slotCount))
+			else
+				warn(("[LocationManager] '%s' has no Slot_N models — skipping"):format(locationFolder.Name))
+			end
 		end
 	end
 end
 
 -- ── Helpers ───────────────────────────────────────────────────────────────
 
-local NEUTRAL_COLOR = Color3.fromRGB(163, 162, 165)
-
 local function getDamagedVariants(typeFolder)
 	local variants = {}
 	for _, child in ipairs(typeFolder:GetChildren()) do
-		if child.Name ~= "Default" then
+		if child.Name:sub(1, 7) == "Damaged" then
 			table.insert(variants, child)
 		end
 	end
@@ -76,15 +118,6 @@ end
 
 local function pickRandom(tbl)
 	return tbl[math.random(#tbl)]
-end
-
-local function shuffleCopy(tbl)
-	local copy = table.clone(tbl)
-	for i = #copy, 2, -1 do
-		local j = math.random(i)
-		copy[i], copy[j] = copy[j], copy[i]
-	end
-	return copy
 end
 
 local function colorizeClone(clone)
@@ -116,21 +149,6 @@ local function colorizeSlot(slotModel, wallColor)
 	end
 end
 
-local function resetSlotColors(slotModel)
-	local floor = slotModel:FindFirstChild("Floor")
-	if floor and floor:IsA("BasePart") then
-		floor.Color = NEUTRAL_COLOR
-	end
-	local walls = slotModel:FindFirstChild("Walls")
-	if walls then
-		for _, part in ipairs(walls:GetDescendants()) do
-			if part:IsA("BasePart") then
-				part.Color = NEUTRAL_COLOR
-			end
-		end
-	end
-end
-
 local function placeFurnitureDefault(slotModel, furnitureKey, padIndex)
 	local furnitureFolder = ServerStorage:FindFirstChild("FurnitureModels")
 	local typeFolder = furnitureFolder and furnitureFolder:FindFirstChild(furnitureKey)
@@ -147,10 +165,9 @@ local function placeFurnitureDefault(slotModel, furnitureKey, padIndex)
 	local fixedClone = defaultModel:Clone()
 	fixedClone.Parent = slotModel
 	if pad and pad:IsA("BasePart") then
-		local _, bbSize = fixedClone:GetBoundingBox()
-		fixedClone:PivotTo(
-			CFrame.new(pad.Position + Vector3.new(0, bbSize.Y / 2, 0)) * pad.CFrame.Rotation
-		)
+		local bbCF, bbSize = fixedClone:GetBoundingBox()
+		local pivotToBottom = fixedClone:GetPivot().Position.Y - bbCF.Position.Y + bbSize.Y / 2
+		fixedClone:PivotTo(pad.CFrame * CFrame.new(0, pivotToBottom, 0))
 	end
 	for _, part in ipairs(fixedClone:GetDescendants()) do
 		if part:IsA("BasePart") then part.Anchored = true end
@@ -162,56 +179,74 @@ end
 
 local LocationManager = {}
 
+-- Returns a set of tier strings that have at least one registered location.
+-- Used by RadiantJobGenerator to avoid generating jobs for non-existent buildings.
+function LocationManager.GetAvailableTiers()
+	local tiers = {}
+	for tier, names in pairs(_locationsByTier) do
+		if #names > 0 then
+			tiers[tier] = true
+		end
+	end
+	return tiers
+end
+
 function LocationManager.Assign(player, job)
-	if not clientLocationsFolder then
-		warn("[LocationManager] Assign called but ClientLocations folder is missing")
+	if not serverLocationsFolder then
+		warn("[LocationManager] Assign called but ClientLocations folder is missing from ServerStorage")
 		LocationFull:FireClient(player)
 		return false
 	end
 
-	local tierNames = Locations.byTier[job.tier]
+	local tierNames = _locationsByTier[job.tier]
 	if not tierNames or #tierNames == 0 then
-		warn("[LocationManager] No locations configured for tier:", job.tier)
+		warn("[LocationManager] No locations registered for tier:", job.tier)
 		LocationFull:FireClient(player)
 		return false
 	end
 
 	-- Search shuffled tier list so all location names get even use
-	local shuffled = shuffleCopy(tierNames)
-	local chosenName  = nil
-	local chosenIndex = nil
-
-	for _, name in ipairs(shuffled) do
+	-- Collect every free slot across all locations of this tier, then pick randomly.
+	-- This ensures all 6 layout variants get equal exposure rather than always
+	-- filling slot 1 before slot 2, etc.
+	local freeSlots = {}
+	for _, name in ipairs(tierNames) do
 		local pool = _pool[name]
 		if pool then
-			for i = 1, Locations.slotCount do
+			for i = 1, (_slotCounts[name] or 0) do
 				if pool[i] == nil then
-					chosenName  = name
-					chosenIndex = i
-					break
+					table.insert(freeSlots, { name = name, index = i })
 				end
 			end
 		end
-		if chosenName then break end
 	end
 
-	if not chosenName then
+	if #freeSlots == 0 then
 		LocationFull:FireClient(player)
 		return false
 	end
+
+	local chosen      = freeSlots[math.random(#freeSlots)]
+	local chosenName  = chosen.name
+	local chosenIndex = chosen.index
 
 	-- Mark slot occupied
 	_pool[chosenName][chosenIndex] = player.UserId
 
-	local locationFolder = clientLocationsFolder:FindFirstChild(chosenName)
-	local slotModel      = locationFolder and locationFolder:FindFirstChild("Slot_" .. chosenIndex)
+	-- Clone the slot template from ServerStorage into the live ActiveSlots folder
+	local templateFolder = serverLocationsFolder:FindFirstChild(chosenName)
+	local slotTemplate   = templateFolder and templateFolder:FindFirstChild("Slot_" .. chosenIndex)
 
-	if not slotModel then
-		warn("[LocationManager] Missing Slot_" .. chosenIndex .. " inside " .. chosenName)
+	if not slotTemplate then
+		warn("[LocationManager] Missing template Slot_" .. chosenIndex .. " in ServerStorage/" .. chosenName)
 		_pool[chosenName][chosenIndex] = nil
 		LocationFull:FireClient(player)
 		return false
 	end
+
+	local slotModel = slotTemplate:Clone()
+	slotModel.Name  = chosenName .. "_Slot_" .. chosenIndex
+	slotModel.Parent = _activeSlotsFolder
 
 	-- Clone all furniture pieces listed in job.furniture onto numbered pads
 	local cloneList = {}
@@ -231,11 +266,9 @@ function LocationManager.Assign(player, job)
 			if #variants > 0 then
 				local clone = pickRandom(variants):Clone()
 				clone.Parent = slotModel
-				local _, bbSize = clone:GetBoundingBox()
-				local yOffset = bbSize.Y / 2
-				clone:PivotTo(
-					CFrame.new(pad.Position + Vector3.new(0, yOffset, 0)) * pad.CFrame.Rotation
-				)
+				local bbCF, bbSize = clone:GetBoundingBox()
+				local pivotToBottom = clone:GetPivot().Position.Y - bbCF.Position.Y + bbSize.Y / 2
+				clone:PivotTo(pad.CFrame * CFrame.new(0, pivotToBottom, 0))
 				for _, part in ipairs(clone:GetDescendants()) do
 					if part:IsA("BasePart") then part.Anchored = true end
 				end
@@ -260,6 +293,8 @@ function LocationManager.Assign(player, job)
 			rp.MaxActivationDistance = 10
 			rp.RequiresLineOfSight = false
 			rp.Exclusivity         = Enum.ProximityPromptExclusivity.AlwaysShow
+			rp.Style               = Enum.ProximityPromptStyle.Custom
+			rp.Enabled             = (i == 1)   -- only the first prompt is active initially
 			rp.Parent              = pad
 			repairPrompts[i]       = rp
 			rp.Triggered:Connect(function(triggeringPlayer)
@@ -285,6 +320,7 @@ function LocationManager.Assign(player, job)
 		doorPromptInstance.ActionText            = "Leave"
 		doorPromptInstance.ObjectText            = "Exit"
 		doorPromptInstance.MaxActivationDistance = 8
+		doorPromptInstance.Style                 = Enum.ProximityPromptStyle.Custom
 		doorPromptInstance.Parent                = doorPart
 	else
 		warn("[LocationManager] No 'Door' BasePart in slot — exit prompt skipped")
@@ -318,73 +354,41 @@ function LocationManager.Release(player)
 	local assignment = _playerAssignment[player]
 	if not assignment then return end
 
-	-- Destroy any remaining damaged clones and all fixed (Default) clones
-	for _, clone in pairs(assignment.clones or {}) do
-		if clone and clone.Parent then clone:Destroy() end
-	end
-	for _, fixedClone in pairs(assignment.fixedClones or {}) do
-		if fixedClone and fixedClone.Parent then fixedClone:Destroy() end
-	end
-
-	-- Remove RepairPrompts (on pads, which persist — must be explicitly removed)
-	for _, rp in pairs(assignment.repairPrompts or {}) do
-		if rp and rp.Parent then rp:Destroy() end
-	end
-
-	-- Remove door prompt (persists on the slot which is NOT destroyed)
-	if assignment.doorPrompt and assignment.doorPrompt.Parent then
-		assignment.doorPrompt:Destroy()
-	end
-
-	-- Reset slot appearance
-	if assignment.slotModel and assignment.slotModel.Parent then
-		resetSlotColors(assignment.slotModel)
-	end
-
-	-- Free pool slot
-	local pool = _pool[assignment.locationName]
-	if pool then
-		pool[assignment.slotIndex] = nil
-	end
-
+	-- Clear immediately so door/events can't double-fire
 	_playerAssignment[player] = nil
 
-	-- Teleport back to player's house
+	-- Teleport first — iris transition plays while the slot is still behind it
 	TeleportToHub:FireClient(player, PlayerHouseManager.GetHouseCFrame(player))
 
+	-- Delay destruction so the model persists through the transition (iris ~1s + buffer)
+	local slotModel = assignment.slotModel
+	local pool      = _pool[assignment.locationName]
+	local slotIndex = assignment.slotIndex
+	local locName   = assignment.locationName
+
+	task.delay(4, function()
+		if slotModel and slotModel.Parent then slotModel:Destroy() end
+		if pool then pool[slotIndex] = nil end
+	end)
+
 	print(("[LocationManager] Released %s from %s Slot_%d"):format(
-		player.Name, assignment.locationName, assignment.slotIndex
+		player.Name, locName, slotIndex
 	))
 end
 
 -- ── Auto-release on disconnect ─────────────────────────────────────────────
 
 Players.PlayerRemoving:Connect(function(player)
-	if _playerAssignment[player] then
-		-- Don't teleport — player is gone. Just clean up the slot.
-		local assignment = _playerAssignment[player]
-		for _, clone in pairs(assignment.clones or {}) do
-			if clone and clone.Parent then clone:Destroy() end
-		end
-		for _, fixedClone in pairs(assignment.fixedClones or {}) do
-			if fixedClone and fixedClone.Parent then fixedClone:Destroy() end
-		end
-		for _, rp in pairs(assignment.repairPrompts or {}) do
-			if rp and rp.Parent then rp:Destroy() end
-		end
-		if assignment.doorPrompt and assignment.doorPrompt.Parent then
-			assignment.doorPrompt:Destroy()
-		end
-		if assignment.slotModel and assignment.slotModel.Parent then
-			resetSlotColors(assignment.slotModel)
-		end
-		local pool = _pool[assignment.locationName]
-		if pool then
-			pool[assignment.slotIndex] = nil
-		end
-		_playerAssignment[player] = nil
-		print(("[LocationManager] Cleaned up slot for disconnected player %s"):format(player.Name))
+	local assignment = _playerAssignment[player]
+	if not assignment then return end
+	-- Player is gone — no teleport needed, just destroy the slot clone
+	if assignment.slotModel and assignment.slotModel.Parent then
+		assignment.slotModel:Destroy()
 	end
+	local pool = _pool[assignment.locationName]
+	if pool then pool[assignment.slotIndex] = nil end
+	_playerAssignment[player] = nil
+	print(("[LocationManager] Cleaned up slot for disconnected player %s"):format(player.Name))
 end)
 
 -- ── FurniturePieceRepaired: swap damaged clone → Default model ────────────
@@ -394,8 +398,19 @@ FurniturePieceRepaired.OnServerEvent:Connect(function(player, pieceIndex)
 	if not assignment then return end
 	if type(pieceIndex) ~= "number" then return end
 
+	-- Capture colors before destroying the damaged clone
+	local fabricColor, frameColor
 	local damagedClone = assignment.clones[pieceIndex]
 	if damagedClone and damagedClone.Parent then
+		for _, desc in ipairs(damagedClone:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				if desc.Name == "FabricPart" and not fabricColor then
+					fabricColor = desc.Color
+				elseif desc.Name == "FramePart" and not frameColor then
+					frameColor = desc.Color
+				end
+			end
+		end
 		damagedClone:Destroy()
 	end
 	assignment.clones[pieceIndex] = nil
@@ -404,8 +419,23 @@ FurniturePieceRepaired.OnServerEvent:Connect(function(player, pieceIndex)
 	if furnitureKey then
 		local fixedClone = placeFurnitureDefault(assignment.slotModel, furnitureKey, pieceIndex)
 		if fixedClone then
+			for _, desc in ipairs(fixedClone:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					if desc.Name == "FabricPart" and fabricColor then
+						desc.Color = fabricColor
+					elseif desc.Name == "FramePart" and frameColor then
+						desc.Color = frameColor
+					end
+				end
+			end
 			assignment.fixedClones[pieceIndex] = fixedClone
 		end
+	end
+
+	-- Enable the next RepairPrompt now that this piece is done
+	local nextPrompt = assignment.repairPrompts[pieceIndex + 1]
+	if nextPrompt and nextPrompt.Parent then
+		nextPrompt.Enabled = true
 	end
 end)
 

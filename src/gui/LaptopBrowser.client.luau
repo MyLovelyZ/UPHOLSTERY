@@ -119,6 +119,17 @@ local function updateFilterVisuals()
 	end
 end
 
+-- ── Tier highlight colours (nil = no highlight shown) ────────────────────
+local TIER_HIGHLIGHT = {
+	Starter   = nil,
+	Mid       = Color3.fromRGB(80,  160, 80),   -- green   (common)
+	Premium   = Color3.fromRGB(70,  120, 210),  -- blue    (uncommon)
+	Prestige  = Color3.fromRGB(150, 80,  220),  -- purple  (rare)
+	Exclusive = Color3.fromRGB(210, 110, 30),   -- orange  (epic)
+	Elite     = Color3.fromRGB(200, 40,  40),   -- red     (legendary)
+	Special   = Color3.fromRGB(215, 175, 55),   -- gold    (mythic)
+}
+
 -- ── Populate flags ────────────────────────────────────────────────────────
 local _jobsLoaded = false
 local _feedLoaded = false
@@ -166,7 +177,15 @@ local function populateJobs()
 		if detailLabel then detailLabel.Text  = job.details                              end
 		if payLabel    then payLabel.Text     = "$" .. tostring(job.pay)                 end
 		if follLabel   then follLabel.Text    = tostring(job.followers) .. " followers"  end
-		if presHigh    then presHigh.Visible  = job.prestige == true                     end
+		if presHigh then
+			local color = TIER_HIGHLIGHT[job.tier]
+			if color then
+				presHigh.BackgroundColor3 = color
+				presHigh.Visible          = true
+			else
+				presHigh.Visible = false
+			end
+		end
 
 		if acceptBtn and acceptRE then
 			local jobId = job.id
@@ -174,6 +193,26 @@ local function populateJobs()
 				acceptRE:FireServer(jobId)
 				LaptopGui.Enabled = false
 				-- GameplayClient takes over: teleport → minigame → submit result
+			end)
+		end
+
+		-- Countdown timer: grey out card and disable accept when job expires
+		if job.expiresAt and acceptBtn then
+			local timerLabel = card:FindFirstChild("TimerLabel")
+			task.spawn(function()
+				while card.Parent do
+					local remaining = math.max(0, job.expiresAt - os.time())
+					if timerLabel then
+						timerLabel.Text    = remaining .. "s"
+						timerLabel.Visible = true
+					end
+					if remaining <= 0 then
+						acceptBtn.Active               = false
+						acceptBtn.BackgroundTransparency = 0.6
+						break
+					end
+					task.wait(1)
+				end
 			end)
 		end
 	end
@@ -453,6 +492,18 @@ local openedEvent = PlayerGui:WaitForChild("LaptopOpened", 10)
 
 if openedEvent then
 	wireNavigation()
+
+	-- Auto-refresh the job board when the server expires the current batch
+	local jobBoardRefreshRE = getRemote("JobBoardRefresh")
+	if jobBoardRefreshRE then
+		jobBoardRefreshRE.OnClientEvent:Connect(function()
+			_jobsLoaded = false
+			local page = LaptopGui:FindFirstChild("MoneyMakerPage")
+			if page and page.Visible then
+				populateJobs()
+			end
+		end)
+	end
 
 	openedEvent.Event:Connect(function()
 		_jobsLoaded = false

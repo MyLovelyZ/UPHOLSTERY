@@ -26,6 +26,7 @@ local _result      = "Pass"
 local _connections = {}
 local _instances   = {}
 local _done        = nil
+local _finished    = false
 
 local function disconnect()
 	for _, c in ipairs(_connections) do c:Disconnect() end
@@ -110,10 +111,13 @@ function TackRemoval.Start(container, config)
 	_connections = {}
 	_instances   = {}
 	_done        = Instance.new("BindableEvent")
+	_finished    = false
 
-	local tackCount   = math.random(cfg.tackCountMin, cfg.tackCountMax)
-	local approachTime = cfg.approachTime
-	local spawnGap    = cfg.tackSpawnGap
+	local p = config.params or cfg
+
+	local tackCount   = math.random(p.tackCountMin, p.tackCountMax)
+	local approachTime = p.approachTime
+	local spawnGap    = p.tackSpawnGap
 
 	-- HUD
 	local timerPill = makePill(container, 100, 48, 0.03, 0.03, 0, 0)
@@ -131,7 +135,6 @@ function TackRemoval.Start(container, config)
 	local score    = 0
 	local maxScore = tackCount * 3
 	local hits     = 0
-	local finished = false
 	local elapsed  = 0
 
 	-- Time display: total game duration based on how many tacks there are
@@ -139,15 +142,15 @@ function TackRemoval.Start(container, config)
 	timerLabel.Text = math.ceil(totalDuration) .. "s"
 
 	local function finishGame()
-		if finished then return end
-		finished = true
+		if _finished then return end
+		_finished = true
 		disconnect()
 		local ratio = maxScore > 0 and (score / maxScore) or 0
 		if hits == 0 then
 			_result = "Fail"
-		elseif ratio >= cfg.perfectMinScore then
+		elseif ratio >= p.perfectMinScore then
 			_result = "Perfect"
-		elseif ratio >= cfg.goodMinScore then
+		elseif ratio >= p.goodMinScore then
 			_result = "Good"
 		else
 			_result = "Pass"
@@ -158,7 +161,7 @@ function TackRemoval.Start(container, config)
 	-- Countdown display
 	task.spawn(function()
 		local timeLeft = totalDuration
-		while timeLeft > 0 and not finished do
+		while timeLeft > 0 and not _finished do
 			task.wait(1)
 			timeLeft = timeLeft - 1
 			timerLabel.Text = math.ceil(timeLeft) .. "s"
@@ -171,7 +174,7 @@ function TackRemoval.Start(container, config)
 	-- Spawn tacks with staggered delays
 	for i = 1, tackCount do
 		task.delay((i - 1) * spawnGap, function()
-			if finished then return end
+			if _finished then return end
 
 			local px        = math.random() * 0.76 + 0.12
 			local py        = math.random() * 0.66 + 0.17
@@ -252,11 +255,11 @@ function TackRemoval.Start(container, config)
 				hitsLabel.Text = hits .. " / " .. tackCount
 
 				local pts, flashCol, qualLabel
-				if progress >= cfg.perfectMinProgress then
+				if progress >= p.perfectMinProgress then
 					pts = 3
 					flashCol   = COL_HIT_PERFECT
 					qualLabel  = "PERFECT"
-				elseif progress >= cfg.goodMinProgress then
+				elseif progress >= p.goodMinProgress then
 					pts = 2
 					flashCol   = COL_HIT_GOOD
 					qualLabel  = "GOOD"
@@ -315,6 +318,11 @@ function TackRemoval.Cleanup()
 		_done:Destroy()
 		_done = nil
 	end
+end
+
+function TackRemoval.Cancel()
+	_finished = true
+	if _done then _done:Fire() end
 end
 
 return TackRemoval

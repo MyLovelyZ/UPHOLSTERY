@@ -1,1 +1,1 @@
-
+-- besok aku lanjutin lagi sekarang mau turu dulu <<33

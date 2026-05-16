@@ -9,18 +9,22 @@
 	    → LaptopBrowser listens to this and starts the boot sequence
 ]]
 
-local Players               = game:GetService("Players")
-local RunService            = game:GetService("RunService")
-local ProximityPromptService = game:GetService("ProximityPromptService")
+-- ini create variable
 
-local player    = Players.LocalPlayer
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
 local PlayerGui = player:WaitForChild("PlayerGui")
+local EventsFolder = ReplicatedStorage:WaitForChild("Events")
 
 local LaptopGui   = PlayerGui:WaitForChild("LaptopGui", 15)
-local openedEvent = PlayerGui:WaitForChild("LaptopOpened", 10)
+local openedEvent = EventsFolder:WaitForChild("LaptopOpened", 10)
 
 if not openedEvent then
-	warn("[LaptopInteraction] LaptopOpened BindableEvent not found in PlayerGui — laptop UI disabled")
+	warn("[LaptopInteraction] LaptopOpened BindableEvent not found in EventsFolder — laptop UI disabled")
 	return
 end
 
@@ -55,7 +59,7 @@ local function setupLaptop(laptopModel)
 	-- Ensure consistent prompt settings regardless of what was placed in the model
 	prompt.ActionText            = "Use"
 	prompt.ObjectText            = "Laptop"
-	prompt.HoldDuration          = 0
+	prompt.HoldDuration          = 0.5
 	prompt.RequiresLineOfSight   = false
 	prompt.Exclusivity           = Enum.ProximityPromptExclusivity.AlwaysShow
 	prompt.Style                 = Enum.ProximityPromptStyle.Custom

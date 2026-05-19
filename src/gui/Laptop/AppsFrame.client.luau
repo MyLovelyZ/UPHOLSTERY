@@ -21,38 +21,40 @@ local bookmarkStore = Browsah_Tab:WaitForChild("BookmarkShop")
 
 -- buat logic ketika bookmark di klik, tab yang sesuai akan muncul dan tab lainnya akan hilang
 
-bookmarkTalkogram.MouseButton1Click:Connect(function()
-    Talkogram_Tab.Visible = true
+local function resetTabs()
+    Talkogram_Tab.Visible = false
     MoneyMaker_Tab.Visible = false
     Shop_Tab.Visible = false
+    Browsah_Tab.Visible = false
+end
+
+bookmarkTalkogram.MouseButton1Click:Connect(function()
+    resetTabs()
+    Talkogram_Tab.Visible = true
 end)
 
 bookmarkMoneyMaker.MouseButton1Click:Connect(function()
-    Talkogram_Tab.Visible = false
+    resetTabs()
     MoneyMaker_Tab.Visible = true
-    Shop_Tab.Visible = false
 end)
 
 bookmarkStore.MouseButton1Click:Connect(function()
-    Talkogram_Tab.Visible = false
-    MoneyMaker_Tab.Visible = false
+    resetTabs()
     Shop_Tab.Visible = true
 end)
 
 local closeButton = Apps:WaitForChild("Miscellaneous"):WaitForChild("NonFunctional")
 
 closeButton.MouseButton1Click:Connect(function()
-    Talkogram_Tab.Visible = false
-    MoneyMaker_Tab.Visible = false
-    Shop_Tab.Visible = false
+    resetTabs()
+    Browsah_Tab.Visible = true
 end)
 
 local CloseBrowsahButton = Apps:WaitForChild("Miscellaneous"):WaitForChild("CloseButton")
+local Miscellaneous = Apps:WaitForChild("Miscellaneous")
 
 CloseBrowsahButton.MouseButton1Click:Connect(function()
     Apps.Visible = false
-    Browsah_Tab.Visible = false
-    Talkogram_Tab.Visible = false
-    MoneyMaker_Tab.Visible = false
-    Shop_Tab.Visible = false
+    Miscellaneous.Visible = false
+    resetTabs()
 end)

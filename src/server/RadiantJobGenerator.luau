@@ -10,104 +10,35 @@
 	  Each subfolder must have a "Tier" string attribute.
 	  DisplayName attribute is optional; falls back to CamelCase splitting.
 
+	Content data (damage types, flavor text, tier rules) lives in GameConfig —
+	edit it there without touching this file.
+
 	Usage:
 	  local jobs = RadiantJobGenerator.Generate(count)
+	  local jobs = RadiantJobGenerator.Generate(count, allowedTiers)
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage     = game:GetService("ServerStorage")
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 
--- ── Tier ordering (highest → lowest; used for rarity roll + fallback) ────
+-- Pull content tables from GameConfig so designers edit data, not logic.
+local TIER_ORDER  = GameConfig.JobTierOrder
+local DAMAGE_POOL = GameConfig.JobDamagePool
+local FLAVOR_POOL = GameConfig.JobFlavorPool
+local TIER_CONFIG = GameConfig.JobTierConfig
 
-local TIER_ORDER = { "Special", "Elite", "Exclusive", "Prestige", "Premium", "Mid", "Starter" }
+-- ── Furniture pool ────────────────────────────────────────────────────────
+-- Built once at require time by scanning ServerStorage.FurnitureModels.
+-- Each subfolder needs a "Tier" string attribute; "Category" is optional.
 
--- ── Damage pool ───────────────────────────────────────────────────────────
-
-local DAMAGE_POOL = {
-	{ label = "tack damage",   minigame = "TackRemoval"   },
-	{ label = "loose staples", minigame = "StapleGunning" },
-	{ label = "foam collapse", minigame = "FoamPadding"   },
-	{ label = "torn seam",     minigame = "SeamStitching" },
-}
-
--- ── Client flavor text ────────────────────────────────────────────────────
-
-local FLAVOR_POOL = {
-	"Customer needs this done before the weekend.",
-	"Handle with care — sentimental piece.",
-	"Quick turnaround required.",
-	"Client is very particular about fabric tension.",
-	"This was my late mother's. Please be gentle.",
-	"Going into a rental property — needs to hold up.",
-	"Needs to match the existing set.",
-	"Rush order. Tip possible.",
-	"Condition is worse than the photos suggest.",
-	"Client bought the fabric themselves.",
-	"Second attempt — first upholsterer botched it.",
-	"High-profile client. Discretion appreciated.",
-}
-
--- ── Per-tier game rules ───────────────────────────────────────────────────
--- pieces: furniture categories drawn per piece (Seating / Accent).
--- furnitureCount: how many furniture pieces in the job.
--- minigameCount: chain length for single-piece jobs; ignored for multi-piece.
-
-local TIER_CONFIG = {
-	Starter   = { furnitureCount={min=1,max=1}, pieces={"Seating"},                    minigameCount={min=1,max=1}, difficulty="Easy",   fragile=false },
-	Mid       = { furnitureCount={min=1,max=2}, pieces={"Seating","Accent"},           minigameCount={min=1,max=2}, difficulty="Medium", fragile=false },
-	Premium   = { furnitureCount={min=2,max=2}, pieces={"Seating","Accent"},           minigameCount={min=2,max=2}, difficulty="Hard",   fragile=true  },
-	Prestige  = { furnitureCount={min=2,max=3}, pieces={"Seating","Accent","Seating"}, minigameCount={min=2,max=3}, difficulty="Hard",   fragile=true  },
-	Exclusive = { furnitureCount={min=2,max=3}, pieces={"Seating","Accent","Accent"},  minigameCount={min=2,max=3}, difficulty="Hard",   fragile=true  },
-	Elite     = { furnitureCount={min=3,max=3}, pieces={"Seating","Accent","Accent"},  minigameCount={min=3,max=3}, difficulty="Hard",   fragile=true  },
-	Special   = { furnitureCount={min=1,max=3}, pieces={"Seating","Accent","Seating"}, minigameCount={min=2,max=4}, difficulty="Hard",   fragile=true  },
-}
-
--- ── Helpers ───────────────────────────────────────────────────────────────
-
-local function pickRandom(tbl)
-	return tbl[math.random(#tbl)]
-end
-
-local function shuffleCopy(tbl)
-	local copy = table.clone(tbl)
-	for i = #copy, 2, -1 do
-		local j = math.random(i)
-		copy[i], copy[j] = copy[j], copy[i]
-	end
-	return copy
-end
+local _furniturePool       = {}  -- [tier]          = { key, ... }
+local _furnitureByCategory = {}  -- [category][tier] = { key, ... }
+local _furnitureDisplay    = {}  -- [key]            = display name string
 
 -- "BarStool" → "Bar Stool"
 local function toDisplayName(key)
 	return key:gsub("(%l)(%u)", "%1 %2")
-end
-
--- ── Dynamic furniture pool ────────────────────────────────────────────────
--- Built once at require time by scanning ServerStorage.FurnitureModels.
--- Supports any tier string — no hardcoded tier list.
-
-local _furniturePool       = {}   -- [tier] = { key, ... }
-local _furnitureByCategory = {}   -- [category][tier] = { key, ... }
-local _furnitureDisplay    = {}   -- [key] = display name string
-
-local function pickForCategory(category, jobTier, fallbackPool)
-	local catPools = _furnitureByCategory[category]
-	if catPools then
-		if catPools[jobTier] and #catPools[jobTier] > 0 then
-			return pickRandom(catPools[jobTier])
-		end
-		-- Fall back through all tiers (high → low) until we find furniture
-		for _, t in ipairs(TIER_ORDER) do
-			if catPools[t] and #catPools[t] > 0 then
-				return pickRandom(catPools[t])
-			end
-		end
-	end
-	if fallbackPool and #fallbackPool > 0 then
-		return pickRandom(fallbackPool)
-	end
-	return nil
 end
 
 local function buildFurniturePool()
@@ -121,6 +52,7 @@ local function buildFurniturePool()
 		if not child:IsA("Folder") then continue end
 
 		local tier = child:GetAttribute("Tier") or "Starter"
+
 		if not _furniturePool[tier] then
 			_furniturePool[tier] = {}
 		end
@@ -148,10 +80,64 @@ end
 
 buildFurniturePool()
 
--- ── Global tier roll ──────────────────────────────────────────────────────
--- Selects a job tier from GameConfig.JobTierRarity weights.
+-- ── Helpers ───────────────────────────────────────────────────────────────
+
+local function pickRandom(tbl)
+	return tbl[math.random(#tbl)]
+end
+
+local function shuffleCopy(tbl)
+	local copy = table.clone(tbl)
+	for i = #copy, 2, -1 do
+		local j = math.random(i)
+		copy[i], copy[j] = copy[j], copy[i]
+	end
+	return copy
+end
+
+-- Returns a furniture key for the given category and tier.
+-- Falls back through all tiers high→low if the exact tier has nothing,
+-- then falls back to the flat fallbackPool if the category isn't mapped at all.
+local function pickForCategory(category, jobTier, fallbackPool)
+	local catPools = _furnitureByCategory[category]
+	if catPools then
+		if catPools[jobTier] and #catPools[jobTier] > 0 then
+			return pickRandom(catPools[jobTier])
+		end
+		for _, t in ipairs(TIER_ORDER) do
+			if catPools[t] and #catPools[t] > 0 then
+				return pickRandom(catPools[t])
+			end
+		end
+	end
+	if fallbackPool and #fallbackPool > 0 then
+		return pickRandom(fallbackPool)
+	end
+	return nil
+end
+
+-- Returns the best furniture pool at or below the given tier.
+local function getFurniturePool(tier)
+	local reached = false
+	for _, t in ipairs(TIER_ORDER) do
+		if t == tier then reached = true end
+		if reached and _furniturePool[t] and #_furniturePool[t] > 0 then
+			return _furniturePool[t]
+		end
+	end
+	-- Last resort: any tier with furniture
+	for _, t in ipairs(TIER_ORDER) do
+		if _furniturePool[t] and #_furniturePool[t] > 0 then
+			return _furniturePool[t]
+		end
+	end
+	return nil
+end
+
+-- ── Tier roll ─────────────────────────────────────────────────────────────
+-- Weighted random from GameConfig.JobTierRarity.
 -- allowedTiers: set table [tier]=true from LocationManager.GetAvailableTiers().
--- Tiers not in allowedTiers are skipped so we never generate jobs with no building.
+-- Tiers absent from allowedTiers are skipped so we never generate jobs with no building.
 
 local function rollJobTier(allowedTiers)
 	local weights = GameConfig.JobTierRarity
@@ -163,6 +149,7 @@ local function rollJobTier(allowedTiers)
 		end
 	end
 	if total == 0 then return "Starter" end
+
 	local roll       = math.random() * total
 	local cumulative = 0
 	for _, tier in ipairs(TIER_ORDER) do
@@ -175,25 +162,6 @@ local function rollJobTier(allowedTiers)
 	return "Starter"
 end
 
--- ── Furniture pool with tier fallback ────────────────────────────────────
--- For a high-tier job with no matching furniture, falls down to lower tiers.
-
-local function getFurniturePool(tier)
-	local reached = false
-	for _, t in ipairs(TIER_ORDER) do
-		if t == tier then reached = true end
-		if reached and _furniturePool[t] and #_furniturePool[t] > 0 then
-			return _furniturePool[t]
-		end
-	end
-	for _, t in ipairs(TIER_ORDER) do
-		if _furniturePool[t] and #_furniturePool[t] > 0 then
-			return _furniturePool[t]
-		end
-	end
-	return nil
-end
-
 -- ── Pay / follower calculations ───────────────────────────────────────────
 
 local function calcPay(tier)
@@ -204,6 +172,18 @@ end
 local function calcFollowers(tier)
 	local range = GameConfig.Followers.gainByTier[tier] or GameConfig.Followers.gainByTier.Starter
 	return math.random(range.min, range.max)
+end
+
+-- ── Job name builder ──────────────────────────────────────────────────────
+
+local function buildJobName(pieceCount, displayNames, damageLabels, minigames)
+	if pieceCount > 1 then
+		return table.concat(displayNames, " & ")
+	elseif #minigames == 1 then
+		return displayNames[1] .. " — " .. damageLabels[1]
+	else
+		return displayNames[1]
+	end
 end
 
 -- ── Public API ────────────────────────────────────────────────────────────
@@ -231,7 +211,7 @@ function RadiantJobGenerator.Generate(count, allowedTiers)
 		local damageLabels  = {}
 
 		if pieceCount > 1 then
-			-- Multi-piece: one furniture + one minigame per piece
+			-- Multi-piece: one furniture piece + one minigame per slot
 			for p = 1, pieceCount do
 				local category = cfg.pieces[p] or cfg.pieces[1]
 				local key = pickForCategory(category, jobTier, furniturePool)
@@ -244,7 +224,7 @@ function RadiantJobGenerator.Generate(count, allowedTiers)
 				end
 			end
 		else
-			-- Single-piece: pick furniture, then run a minigame chain
+			-- Single-piece: one furniture with a minigame chain
 			local category = cfg.pieces[1]
 			local key = pickForCategory(category, jobTier, furniturePool)
 			if not key then continue end
@@ -261,15 +241,7 @@ function RadiantJobGenerator.Generate(count, allowedTiers)
 
 		if #furnitureList == 0 then continue end
 
-		local jobName
-		if pieceCount > 1 then
-			jobName = table.concat(displayNames, " & ")
-		elseif #minigames == 1 then
-			jobName = displayNames[1] .. " — " .. damageLabels[1]
-		else
-			jobName = displayNames[1]
-		end
-
+		local jobName = buildJobName(pieceCount, displayNames, damageLabels, minigames)
 		local flavor  = pickRandom(FLAVOR_POOL)
 		local details = flavor .. " (" .. table.concat(damageLabels, ", ") .. ")"
 

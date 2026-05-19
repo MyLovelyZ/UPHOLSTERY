@@ -18,6 +18,7 @@ local UserInputService  = game:GetService("UserInputService")
 local TweenService      = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GameConfig        = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local SFX               = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SFXPlayer"))
 
 local cfg = GameConfig.FoamPadding
 
@@ -513,6 +514,7 @@ function FoamPadding.Start(container, config)
 		ps.placed   = true
 		filledCells = filledCells + #ps.cells
 		progLabel.Text = filledCells .. " / " .. totalMoldCells
+		SFX.Play("FoamSnap")
 
 		-- Dim the card
 		local card = trayCards[idx]
@@ -525,6 +527,7 @@ function FoamPadding.Start(container, config)
 	end
 
 	local function liftPiece(idx)
+		SFX.Play("FoamLift")
 		-- Remove from grid
 		local count = 0
 		for r = 1, GRID_ROWS do
@@ -551,6 +554,7 @@ function FoamPadding.Start(container, config)
 	local function rotatePiece(idx)
 		if not idx then return end
 		if pieceState[idx].placed then return end
+		SFX.Play("FoamRotate")
 		pieceState[idx].cells = rotateCW(pieceState[idx].cells)
 		drawThumb(trayCards[idx], pieceState[idx].cells, pieceState[idx].color)
 	end
@@ -629,6 +633,8 @@ function FoamPadding.Start(container, config)
 						placePiece(selectedPiece, or_, oc)
 					elseif playerGrid[row][col] ~= 0 then
 						liftPiece(playerGrid[row][col])
+					else
+						SFX.Play("FoamMisplace")
 					end
 				elseif playerGrid[row][col] ~= 0 then
 					liftPiece(playerGrid[row][col])
@@ -681,6 +687,7 @@ function FoamPadding.Start(container, config)
 		else
 			_result = "Pass"
 		end
+		if filledCells >= totalMoldCells then SFX.Play("FoamComplete") end
 		if _done then _done:Fire() end
 	end
 

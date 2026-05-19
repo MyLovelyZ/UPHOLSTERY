@@ -19,6 +19,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local PlayerGui = player:WaitForChild("PlayerGui")
 local EventsFolder = ReplicatedStorage:WaitForChild("Events")
+local SFX          = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SFXPlayer"))
 
 local LaptopGui   = PlayerGui:WaitForChild("LaptopGui", 15)
 local openedEvent = EventsFolder:WaitForChild("LaptopOpened", 10)
@@ -68,6 +69,7 @@ local function setupLaptop(laptopModel)
 		if triggeringPlayer ~= player then return end
 		if _isOpening then return end  -- debounce: ignore rapid re-triggers
 		_isOpening = true
+		SFX.Play("LaptopOpen")
 		openedEvent:Fire()
 		-- Keep debounce active for the boot-sequence duration so overlapping
 		-- triggers can't start a second boot animation.
@@ -130,6 +132,7 @@ RunService.Heartbeat:Connect(function()
 	_lastCheck = now
 
 	if LaptopGui and LaptopGui.Enabled and not isNearAnyLaptop() then
+		SFX.Play("LaptopClose")
 		LaptopGui.Enabled = false
 	end
 end)

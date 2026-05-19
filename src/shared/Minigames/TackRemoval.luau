@@ -270,6 +270,12 @@ function TackRemoval.Start(container, config)
 				end
 				score = score + pts
 
+				if pts == 3 then
+					SFX.Play("TackPerfect")
+				else
+					SFX.Play("TackGood")
+				end
+
 				showHitText(container, px, py - 0.03, qualLabel, flashCol)
 
 				tack.BackgroundColor3 = flashCol
@@ -287,6 +293,7 @@ function TackRemoval.Start(container, config)
 				hitDone = true
 				hitConn:Disconnect()
 
+				SFX.Play("TackMiss")
 				tack.BackgroundColor3 = COL_MISS
 				showHitText(container, px, py - 0.03, "MISS", COL_MISS)
 				TweenService:Create(tack, TweenInfo.new(0.35), { BackgroundTransparency = 1 }):Play()

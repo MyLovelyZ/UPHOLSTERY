@@ -147,6 +147,51 @@ return {
 	},
 
 	-- =========================================================
+	-- JOB GENERATOR DATA  (consumed by RadiantJobGenerator)
+	-- Edit here to add damage types, flavor text, or rebalance tier rules.
+	-- =========================================================
+
+	-- Tier order from highest to lowest; controls rarity roll + furniture fallback.
+	JobTierOrder = { "Special", "Elite", "Exclusive", "Prestige", "Premium", "Mid", "Starter" },
+
+	-- Each entry maps a visible damage label to the minigame that fixes it.
+	JobDamagePool = {
+		{ label = "tack damage",   minigame = "TackRemoval"   },
+		{ label = "loose staples", minigame = "StapleGunning" },
+		{ label = "foam collapse", minigame = "FoamPadding"   },
+		{ label = "torn seam",     minigame = "SeamStitching" },
+	},
+
+	-- One-line client flavor texts shown in the job details field.
+	JobFlavorPool = {
+		"Customer needs this done before the weekend.",
+		"Handle with care — sentimental piece.",
+		"Quick turnaround required.",
+		"Client is very particular about fabric tension.",
+		"This was my late mother's. Please be gentle.",
+		"Going into a rental property — needs to hold up.",
+		"Needs to match the existing set.",
+		"Rush order. Tip possible.",
+		"Condition is worse than the photos suggest.",
+		"Client bought the fabric themselves.",
+		"Second attempt — first upholsterer botched it.",
+		"High-profile client. Discretion appreciated.",
+	},
+
+	-- Per-tier rules: how many furniture pieces, which categories, minigame chain length.
+	-- pieces: ordered list of furniture categories drawn per piece slot.
+	-- minigameCount: chain length for single-piece jobs only; ignored for multi-piece.
+	JobTierConfig = {
+		Starter   = { furnitureCount = {min=1, max=1}, pieces = {"Seating"},                    minigameCount = {min=1, max=1}, difficulty = "Easy",   fragile = false },
+		Mid       = { furnitureCount = {min=1, max=2}, pieces = {"Seating", "Accent"},          minigameCount = {min=1, max=2}, difficulty = "Medium", fragile = false },
+		Premium   = { furnitureCount = {min=2, max=2}, pieces = {"Seating", "Accent"},          minigameCount = {min=2, max=2}, difficulty = "Hard",   fragile = true  },
+		Prestige  = { furnitureCount = {min=2, max=3}, pieces = {"Seating", "Accent", "Seating"}, minigameCount = {min=2, max=3}, difficulty = "Hard", fragile = true  },
+		Exclusive = { furnitureCount = {min=2, max=3}, pieces = {"Seating", "Accent", "Accent"}, minigameCount = {min=2, max=3}, difficulty = "Hard",  fragile = true  },
+		Elite     = { furnitureCount = {min=3, max=3}, pieces = {"Seating", "Accent", "Accent"}, minigameCount = {min=3, max=3}, difficulty = "Hard",  fragile = true  },
+		Special   = { furnitureCount = {min=1, max=3}, pieces = {"Seating", "Accent", "Seating"}, minigameCount = {min=2, max=4}, difficulty = "Hard", fragile = true  },
+	},
+
+	-- =========================================================
 	-- TALKOGRAM
 	-- =========================================================
 	Talkogram = {

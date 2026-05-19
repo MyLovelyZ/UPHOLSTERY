@@ -29,8 +29,10 @@ end)
 local BrowsahButton = Desktop:WaitForChild("BrowsahButton")
 local Apps = LaptopScreen:WaitForChild("Apps")
 local Browsah_Tab = Apps:WaitForChild("Browsah_Tab")
+local Miscellaneous = Apps:WaitForChild("Miscellaneous")
 
 BrowsahButton.MouseButton1Click:Connect(function()
     Apps.Visible = not Apps.Visible
     Browsah_Tab.Visible = not Browsah_Tab.Visible
+    Miscellaneous.Visible = not Miscellaneous.Visible
 end)

@@ -2,6 +2,7 @@
 local Players      = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SFX          = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SFXPlayer"))
 
 local player    = Players.LocalPlayer
 local PlayerGui = player:WaitForChild("PlayerGui")
@@ -34,6 +35,7 @@ local function playBootSequence()
 
 	if not LaptopGui.Enabled then return end
 
+	SFX.Play("BootComplete")
 	LoadingScreen.Visible = false
 	LaptopScreen.Visible  = true
 end

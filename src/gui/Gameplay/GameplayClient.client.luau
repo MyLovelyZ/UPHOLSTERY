@@ -12,6 +12,8 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService      = game:GetService("TweenService")
 
+local SFX = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SFXPlayer"))
+
 local player = Players.LocalPlayer
 
 local MinigameRunner = require(
@@ -88,8 +90,8 @@ local function irisFullSize()
 end
 
 local function irisClose()
+	SFX.Play("IrisClose")
 	_irisFrame.Size = UDim2.fromOffset(0, 0)
-	-- Sine.In: starts gently then accelerates — feels like a mechanical iris
 	local t = TweenService:Create(_irisFrame,
 		TweenInfo.new(IRIS_CLOSE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.In),
 		{ Size = irisFullSize() })
@@ -98,11 +100,11 @@ end
 
 local function irisOpen()
 	_irisFrame.Size = irisFullSize()
-	-- Sine.Out: snaps open quickly then eases to a stop — circle seems to "breathe" open
 	local t = TweenService:Create(_irisFrame,
 		TweenInfo.new(IRIS_OPEN_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
 		{ Size = UDim2.fromOffset(0, 0) })
 	t:Play(); t.Completed:Wait()
+	SFX.Play("IrisOpen")
 end
 
 -- ── State ─────────────────────────────────────────────────────────────────
@@ -159,6 +161,7 @@ TeleportToLocation.OnClientEvent:Connect(function(cframe, job, cloneList)
 		moveCharacter(cframe)
 
 		irisOpen()
+		SFX.Play("LocationArrive")
 
 		-- Now visible: show HUD and highlights
 		if _multiPiece then
@@ -203,8 +206,10 @@ TeleportToLocation.OnClientEvent:Connect(function(cframe, job, cloneList)
 							local finalResult = #resultList == 1
 								and resultList[1]
 								or MinigameRunner.CollapseChainResult(resultList)
+							SFX.Play("JobSubmit")
 							SubmitJobResult:FireServer(_currentJob.id, finalResult)
 						else
+							SFX.Play("JobAbandon")
 							AbandonJob:FireServer()
 						end
 						_pieceResults   = {}
@@ -268,6 +273,7 @@ StartMinigame.OnClientEvent:Connect(function(pieceIndex)
 
 	_pieceResults[pieceIndex] = result
 	_repairedCount += 1
+	SFX.Play("FurnitureFixed")
 	FurniturePieceRepaired:FireServer(pieceIndex)
 
 	if _repairedCount >= _totalPieces then
@@ -297,6 +303,7 @@ TeleportToHub.OnClientEvent:Connect(function(cframe)
 end)
 
 LocationFull.OnClientEvent:Connect(function()
+	SFX.Play("LocationFull")
 	showHUD("⚠️  All client slots are full — try again in a moment")
 	task.delay(3, function()
 		if not hudLabel.Visible then return end

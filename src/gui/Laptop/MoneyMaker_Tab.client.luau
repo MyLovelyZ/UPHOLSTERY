@@ -18,6 +18,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players           = game:GetService("Players")
+local SFX               = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SFXPlayer"))
 
 local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -73,6 +74,7 @@ local function populateBoard(jobs)
         end
 
         card:WaitForChild("AcceptButton").MouseButton1Click:Connect(function()
+            SFX.Play("JobAccept")
             AcceptJob:FireServer(job.id)
         end)
 
@@ -88,6 +90,9 @@ local function refreshBoard()
 end
 
 -- Re-render whenever a job is accepted or the pool replenishes
-JobBoardRefresh.OnClientEvent:Connect(refreshBoard)
+JobBoardRefresh.OnClientEvent:Connect(function()
+    SFX.Play("BoardRefresh")
+    refreshBoard()
+end)
 
 refreshBoard()

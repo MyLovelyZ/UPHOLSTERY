@@ -56,6 +56,7 @@ local _blur = nil
 
 local function addBlur()
 	if _blur then return end
+	SFX.Play("MinigameStart")
 	_blur = Instance.new("BlurEffect")
 	_blur.Size = 0
 	_blur.Parent = Lighting
@@ -97,6 +98,7 @@ end
 -- ── Result overlay ────────────────────────────────────────────────────────
 
 local function showResultOverlay(container, result)
+	SFX.Play("Result" .. result)   -- e.g. ResultPerfect, ResultGood, ResultPass, ResultFail
 	local col   = RESULT_COLORS[result]  or Color3.fromRGB(200, 200, 200)
 	local label = RESULT_LABELS[result]  or result:upper()
 

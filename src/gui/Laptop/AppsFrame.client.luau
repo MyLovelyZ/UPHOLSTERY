@@ -1,6 +1,8 @@
 -- besok aku lanjutin lagi sekarang mau turu dulu <<33
 
-local Players = game:GetService("Players")
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SFX               = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SFXPlayer"))
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -29,16 +31,19 @@ local function resetTabs()
 end
 
 bookmarkTalkogram.MouseButton1Click:Connect(function()
+    SFX.Play("UIClick")
     resetTabs()
     Talkogram_Tab.Visible = true
 end)
 
 bookmarkMoneyMaker.MouseButton1Click:Connect(function()
+    SFX.Play("UIClick")
     resetTabs()
     MoneyMaker_Tab.Visible = true
 end)
 
 bookmarkStore.MouseButton1Click:Connect(function()
+    SFX.Play("UIClick")
     resetTabs()
     Shop_Tab.Visible = true
 end)
@@ -46,6 +51,7 @@ end)
 local closeButton = Apps:WaitForChild("Miscellaneous"):WaitForChild("NonFunctional")
 
 closeButton.MouseButton1Click:Connect(function()
+    SFX.Play("UIClick")
     resetTabs()
     Browsah_Tab.Visible = true
 end)
@@ -54,6 +60,7 @@ local CloseBrowsahButton = Apps:WaitForChild("Miscellaneous"):WaitForChild("Clos
 local Miscellaneous = Apps:WaitForChild("Miscellaneous")
 
 CloseBrowsahButton.MouseButton1Click:Connect(function()
+    SFX.Play("UIClick")
     Apps.Visible = false
     Miscellaneous.Visible = false
     resetTabs()

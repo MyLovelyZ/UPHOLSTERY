@@ -356,6 +356,7 @@ function SeamStitching.Start(container, config)
 		if _finished then return end
 		_finished = true
 		disconnect()
+		SFX.Stop("StitchLoop")
 		local avgFrac = deviationSamples > 0
 			and (totalDeviation / deviationSamples) / tolerance or 0
 		if not everDragged then
@@ -367,6 +368,7 @@ function SeamStitching.Start(container, config)
 		else
 			_result = "Pass"
 		end
+		SFX.Play("StitchComplete")
 		if _done then _done:Fire() end
 	end
 
@@ -376,7 +378,7 @@ function SeamStitching.Start(container, config)
 			finishGame()
 		else
 			segLabel.Text = segmentIndex .. " / " .. segCount
-			SFX.Play("StitchComplete")
+			SFX.Play("StitchSegment")
 			highlightSegment(canvas, segmentIndex)
 			-- Flash needle green
 			TweenService:Create(needle, TweenInfo.new(0.12), {
@@ -456,6 +458,7 @@ function SeamStitching.Start(container, config)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			isDragging = true
+			SFX.PlayLooping("StitchLoop")
 		end
 	end)
 	table.insert(_connections, downConn)
@@ -464,6 +467,7 @@ function SeamStitching.Start(container, config)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			isDragging = false
+			SFX.Stop("StitchLoop")
 		end
 	end)
 	table.insert(_connections, upConn)

@@ -67,17 +67,14 @@ local function populateBoard(jobs)
         card:WaitForChild("PayLabel").Text       = "$" .. tostring(job.pay)
         card:WaitForChild("FollowersLabel").Text = "+" .. tostring(job.followers) .. " followers"
 
-        -- local color = TIER_COLOR[job.tier]
-        -- if color then
-        --     card:WaitForChild("PrestigeHighlight").TextColor3 = color
-        -- end
-
-        -- If JobCard is a TextButton / ImageButton, clicking it accepts the job
-        if card:IsA("GuiButton") then
-            card.MouseButton1Click:Connect(function()
-                AcceptJob:FireServer(job.id)
-            end)
+        local color = TIER_COLOR[job.tier]
+        if color then
+            card:WaitForChild("PrestigeHighlight").BackgroundColor3 = color
         end
+
+        card:WaitForChild("AcceptButton").MouseButton1Click:Connect(function()
+            AcceptJob:FireServer(job.id)
+        end)
 
         card.Parent = scrollFrame
     end

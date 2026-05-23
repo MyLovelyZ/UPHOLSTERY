@@ -11,6 +11,8 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService      = game:GetService("TweenService")
+local RunService        = game:GetService("RunService")
+local PPS               = game:GetService("ProximityPromptService")
 
 local SFX = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SFXPlayer"))
 
@@ -69,19 +71,19 @@ _irisGui.ResetOnSpawn   = false
 _irisGui.Parent         = player:WaitForChild("PlayerGui")
 
 local _irisFrame = Instance.new("Frame")
-_irisFrame.BackgroundColor3 = Color3.new(0, 0, 0)
-_irisFrame.BorderSizePixel  = 0
-_irisFrame.AnchorPoint      = Vector2.new(0.5, 0.5)
-_irisFrame.Position         = UDim2.new(0.5, 0, 0.5, 0)
-_irisFrame.Size             = UDim2.fromOffset(0, 0)
-_irisFrame.Parent           = _irisGui
+_irisFrame.BackgroundColor3      = Color3.new(0, 0, 0)
+_irisFrame.BackgroundTransparency = 0
+_irisFrame.BorderSizePixel       = 0
+_irisFrame.AnchorPoint           = Vector2.new(0.5, 0.5)
+_irisFrame.Position              = UDim2.new(0.5, 0, 0.5, 0)
+_irisFrame.Size                  = UDim2.fromOffset(0, 0)
+_irisFrame.Parent                = _irisGui
 
 local _irisCorner = Instance.new("UICorner")
 _irisCorner.CornerRadius = UDim.new(0.5, 0)
 _irisCorner.Parent       = _irisFrame
 
-local IRIS_CLOSE_TIME = 0.45   -- slightly slower close for dramatic weight
-local IRIS_OPEN_TIME  = 0.50   -- longer open so the reveal feels unhurried
+local IRIS_TIME = 0.35
 
 local function irisFullSize()
 	local vp = workspace.CurrentCamera.ViewportSize
@@ -93,7 +95,7 @@ local function irisClose()
 	SFX.Play("IrisClose")
 	_irisFrame.Size = UDim2.fromOffset(0, 0)
 	local t = TweenService:Create(_irisFrame,
-		TweenInfo.new(IRIS_CLOSE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.In),
+		TweenInfo.new(IRIS_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 		{ Size = irisFullSize() })
 	t:Play(); t.Completed:Wait()
 end
@@ -101,7 +103,7 @@ end
 local function irisOpen()
 	_irisFrame.Size = irisFullSize()
 	local t = TweenService:Create(_irisFrame,
-		TweenInfo.new(IRIS_OPEN_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+		TweenInfo.new(IRIS_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 		{ Size = UDim2.fromOffset(0, 0) })
 	t:Play(); t.Completed:Wait()
 	SFX.Play("IrisOpen")
@@ -114,9 +116,12 @@ local _repairedCount   = 0    -- how many pieces have been repaired this job
 local _totalPieces     = 0    -- total pieces for the current job
 local _highlights      = {}   -- Highlight instances indexed by piece number
 local _currentJob      = nil  -- job table for the current active assignment
+local _locationName    = "?"  -- display name of the current job location
 local _multiPiece      = false
 local _minigameActive  = false  -- guard: only one minigame runs at a time
 local _firstHubTeleport = true  -- loading screen covers the first arrival; skip irisClose
+local _slotModel     = nil   -- parent of cloneList[1]; used for door highlight
+local _doorHighlight = nil
 
 -- ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -143,12 +148,19 @@ local function clearAllHighlights()
 		if hl and hl.Parent then hl:Destroy() end
 	end
 	_highlights = {}
+	if _doorHighlight then
+		_doorHighlight:Destroy()
+		_doorHighlight = nil
+	end
 end
 
 -- ── Remote handlers ───────────────────────────────────────────────────────
 
-TeleportToLocation.OnClientEvent:Connect(function(cframe, job, cloneList)
+TeleportToLocation.OnClientEvent:Connect(function(cframe, job, cloneList, locationName)
 	task.spawn(function()
+		local laptopGui = player.PlayerGui:FindFirstChild("LaptopGui")
+		if laptopGui then laptopGui.Enabled = false end
+
 		irisClose()
 
 		-- Reset per-job state and move while screen is black
@@ -156,18 +168,22 @@ TeleportToLocation.OnClientEvent:Connect(function(cframe, job, cloneList)
 		_repairedCount = 0
 		_totalPieces   = #(cloneList or {})
 		_currentJob    = job
+		_locationName  = locationName and locationName:gsub("(%l)(%u)", "%1 %2") or (job.name or "?")
 		_multiPiece    = _totalPieces > 1
 		clearAllHighlights()
+		_slotModel = cloneList and cloneList[1] and cloneList[1].Parent
 		moveCharacter(cframe)
+		RunService.Heartbeat:Wait()
 
 		irisOpen()
 		SFX.Play("LocationArrive")
+		PPS.MaxPromptsVisible = 1
 
 		-- Now visible: show HUD and highlights
 		if _multiPiece then
-			showHUD("📍 " .. (job.name or "?") .. "  |  repair all " .. _totalPieces .. " pieces, then use the door")
+			showHUD("📍 " .. _locationName .. "  |  repair all " .. _totalPieces .. " pieces, then use the door")
 		else
-			showHUD("📍 " .. (job.name or "?") .. "  |  walk to the furniture to begin")
+			showHUD("📍 " .. _locationName .. "  |  walk to the furniture to begin")
 		end
 
 		-- Highlight every piece (Highlight adorns the Model so it works even before parts replicate)
@@ -183,43 +199,53 @@ TeleportToLocation.OnClientEvent:Connect(function(cframe, job, cloneList)
 			end
 		end
 
-		-- DoorPrompt is dynamic (added by server) so search after a short replication delay
+		-- DoorPrompt is dynamic (added by server) so search after a short replication delay.
+		-- All DoorPrompts in the slot are connected — supports locations with multiple exits.
 		local slotModel = cloneList and cloneList[1] and cloneList[1].Parent
 		task.spawn(function()
 			task.wait(0.5)
 			if not slotModel then return end
+
+			local _doorUsed = false  -- guard: only the first exit trigger fires
+			local function onDoorTriggered()
+				if _doorUsed then return end
+				_doorUsed = true
+				-- Cancel any in-progress minigame before exiting
+				if MinigameRunner.IsRunning() then
+					MinigameRunner.Cancel()
+					task.wait()  -- yield so the cancelled coroutine can clean up
+				end
+				if _repairedCount > 0 then
+					local resultList = {}
+					for idx = 1, _totalPieces do
+						if _pieceResults[idx] then
+							table.insert(resultList, _pieceResults[idx])
+						end
+					end
+					local finalResult = #resultList == 1
+						and resultList[1]
+						or MinigameRunner.CollapseChainResult(resultList)
+					SFX.Play("JobSubmit")
+					SubmitJobResult:FireServer(_currentJob.id, finalResult)
+				else
+					SFX.Play("JobAbandon")
+					AbandonJob:FireServer()
+				end
+				_pieceResults   = {}
+				_repairedCount  = 0
+				_minigameActive = false
+			end
+
+			local found = 0
 			for _, desc in ipairs(slotModel:GetDescendants()) do
 				if desc:IsA("ProximityPrompt") and desc.Name == "DoorPrompt" then
-					desc.Triggered:Connect(function()
-						-- Cancel any in-progress minigame before exiting
-						if MinigameRunner.IsRunning() then
-							MinigameRunner.Cancel()
-							task.wait()  -- yield so the cancelled coroutine can clean up
-						end
-						if _repairedCount > 0 then
-							local resultList = {}
-							for idx = 1, _totalPieces do
-								if _pieceResults[idx] then
-									table.insert(resultList, _pieceResults[idx])
-								end
-							end
-							local finalResult = #resultList == 1
-								and resultList[1]
-								or MinigameRunner.CollapseChainResult(resultList)
-							SFX.Play("JobSubmit")
-							SubmitJobResult:FireServer(_currentJob.id, finalResult)
-						else
-							SFX.Play("JobAbandon")
-							AbandonJob:FireServer()
-						end
-						_pieceResults   = {}
-						_repairedCount  = 0
-						_minigameActive = false
-					end)
-					return
+					desc.Triggered:Connect(onDoorTriggered)
+					found += 1
 				end
 			end
-			warn("[GameplayClient] DoorPrompt not found after wait — player cannot exit this slot")
+			if found == 0 then
+				warn("[GameplayClient] DoorPrompt not found after wait — player cannot exit this slot")
+			end
 		end)
 	end)
 end)
@@ -236,7 +262,7 @@ StartMinigame.OnClientEvent:Connect(function(pieceIndex)
 		_highlights[pieceIndex] = nil
 	end
 
-	showHUD("🔧 " .. (_currentJob.name or "?") .. "  |  repair in progress...")
+	showHUD("🔧 " .. _locationName .. "  |  repair in progress...")
 
 	-- Freeze character for the duration of the minigame
 	local char     = player.Character
@@ -277,7 +303,22 @@ StartMinigame.OnClientEvent:Connect(function(pieceIndex)
 	FurniturePieceRepaired:FireServer(pieceIndex)
 
 	if _repairedCount >= _totalPieces then
-		showHUD("✅ " .. (_currentJob.name or "?") .. "  |  all done!  ·  use the door to leave")
+		showHUD("✅ " .. _locationName .. "  |  all done!  ·  use the door to leave")
+		if _slotModel and not _doorHighlight then
+			local doorPart = _slotModel:FindFirstChild("Door", true)
+			if doorPart then
+				local doorTarget = doorPart:IsA("BasePart") and doorPart
+					or doorPart:FindFirstChildWhichIsA("BasePart")
+				if doorTarget then
+					_doorHighlight = Instance.new("Highlight")
+					_doorHighlight.Adornee             = doorTarget.Parent or doorTarget
+					_doorHighlight.FillTransparency    = 1
+					_doorHighlight.OutlineTransparency = 0
+					_doorHighlight.OutlineColor        = Color3.fromRGB(100, 255, 100)
+					_doorHighlight.Parent              = player.PlayerGui
+				end
+			end
+		end
 	else
 		showHUD("✅ Piece " .. pieceIndex .. " done  ·  " .. (_totalPieces - _repairedCount) .. " left — keep going!")
 	end
@@ -285,6 +326,7 @@ end)
 
 TeleportToHub.OnClientEvent:Connect(function(cframe)
 	task.spawn(function()
+		PPS.MaxPromptsVisible = 10
 		if _firstHubTeleport then
 			-- Loading screen is covering everything — skip iris close.
 			-- Wait to match LoadingScreen's text-fade before moving the character.
@@ -295,6 +337,7 @@ TeleportToHub.OnClientEvent:Connect(function(cframe)
 			irisClose()
 			clearAllHighlights()
 			moveCharacter(cframe)
+			task.wait(0.15)
 			irisOpen()
 		end
 		task.wait(0.5)

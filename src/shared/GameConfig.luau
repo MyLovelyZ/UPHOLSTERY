@@ -191,6 +191,24 @@ return {
 		Special   = { furnitureCount = {min=1, max=3}, pieces = {"Seating", "Accent", "Seating"}, minigameCount = {min=2, max=4}, difficulty = "Hard", fragile = true  },
 	},
 
+	-- Hand-crafted jobs for specific locations with built-in tagged models.
+	-- Each entry generates a real job card on the board. locationOverride is mandatory.
+	-- In Studio: add Repairable (bool, true) attribute to each Model in the slot template.
+	--            Optionally add RepairOrder (number) to control interaction sequence.
+	BespokeJobs = {
+		-- {
+		-- 	name             = "Supercar Seat Restoration",
+		-- 	details          = "Client demands showroom-perfect leather on their prized possession.",
+		-- 	tier             = "Prestige",
+		-- 	pay              = 1500,
+		-- 	followers        = 60,
+		-- 	locationOverride = "SupercarGarage",
+		-- 	minigames        = { "SeamStitching", "FoamPadding" },
+		-- 	difficulty       = "Hard",
+		-- 	fragile          = true,
+		-- },
+	},
+
 	-- =========================================================
 	-- TALKOGRAM
 	-- =========================================================

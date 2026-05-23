@@ -40,6 +40,9 @@ remote("LikePost")
 remoteFunction("RequestInventory")
 remote("PurchaseTool")
 
+-- Job board metadata (public)
+remoteFunction("RequestLocationsByTier")
+
 -- Admin
 remote("AdminSpawnJob")
 remoteFunction("AdminRequestLocations")

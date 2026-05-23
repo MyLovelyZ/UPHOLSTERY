@@ -33,9 +33,10 @@ JobPool.Init(remotesFolder, LocationManager, RadiantJobGenerator, TalkogramHandl
 
 -- ── Stub handlers ─────────────────────────────────────────────────────────
 
-local RequestInventory      = remotesFolder:WaitForChild("RequestInventory")
-local PurchaseTool          = remotesFolder:WaitForChild("PurchaseTool")
-local AdminRequestLocations = remotesFolder:WaitForChild("AdminRequestLocations")
+local RequestInventory        = remotesFolder:WaitForChild("RequestInventory")
+local PurchaseTool            = remotesFolder:WaitForChild("PurchaseTool")
+local AdminRequestLocations   = remotesFolder:WaitForChild("AdminRequestLocations")
+local RequestLocationsByTier  = remotesFolder:WaitForChild("RequestLocationsByTier")
 
 RequestInventory.OnServerInvoke = function(_player)
 	return {}
@@ -47,6 +48,10 @@ end)
 
 AdminRequestLocations.OnServerInvoke = function(_player)
 	return LocationManager.GetLocationNames()
+end
+
+RequestLocationsByTier.OnServerInvoke = function(_player)
+	return LocationManager.GetLocationsByTier()
 end
 
 -- ── Player cleanup ────────────────────────────────────────────────────────

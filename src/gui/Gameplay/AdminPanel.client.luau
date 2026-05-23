@@ -1,4 +1,4 @@
--- Developer admin panel — toggle with F12.
+-- Developer admin panel — toggle with F5.
 
 local Players = game:GetService("Players")
 local UIS     = game:GetService("UserInputService")
@@ -59,7 +59,8 @@ local gui = make("ScreenGui", {
 
 local panel = make("Frame", {
 	Size             = UDim2.new(0, 270, 0, 210),
-	Position         = UDim2.new(0, 14, 0, 14),
+	Position         = UDim2.new(1, -14, 1, -14),
+	AnchorPoint      = Vector2.new(1, 1),
 	BackgroundColor3 = C.bg,
 	BorderSizePixel  = 0,
 	Visible          = true,
@@ -85,7 +86,7 @@ make("TextLabel", {
 	Size                 = UDim2.new(1, -10, 1, 0),
 	Position             = UDim2.new(0, 10, 0, 0),
 	BackgroundTransparency = 1,
-	Text                 = "DEV PANEL  •  F12",
+	Text                 = "DEV PANEL  •  F5",
 	TextColor3           = C.sub,
 	Font                 = Enum.Font.GothamBold,
 	TextSize             = 11,
@@ -249,7 +250,7 @@ end)
 
 UIS.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
-	if input.KeyCode == Enum.KeyCode.F12 then
+	if input.KeyCode == Enum.KeyCode.F5 then
 		panel.Visible = not panel.Visible
 	end
 end)

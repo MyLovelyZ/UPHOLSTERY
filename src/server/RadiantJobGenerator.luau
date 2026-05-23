@@ -260,6 +260,36 @@ function RadiantJobGenerator.Generate(count, allowedTiers)
 		})
 	end
 
+	-- Inject bespoke (tag-based) jobs from GameConfig.BespokeJobs.
+	-- Up to 2 eligible entries are picked randomly and appended to the pool.
+	local bespoke = GameConfig.BespokeJobs
+	if bespoke and #bespoke > 0 then
+		local eligible = {}
+		for _, bj in ipairs(bespoke) do
+			if not allowedTiers or allowedTiers[bj.tier] then
+				table.insert(eligible, bj)
+			end
+		end
+		local shuffled = shuffleCopy(eligible)
+		for k = 1, math.min(2, #shuffled) do
+			local bj = shuffled[k]
+			table.insert(jobs, {
+				id               = k,   -- reassigned by LaptopData
+				name             = bj.name,
+				details          = bj.details,
+				tier             = bj.tier,
+				pay              = bj.pay,
+				followers        = bj.followers,
+				imageId          = bj.imageId or 0,
+				furniture        = {},              -- empty → tag-based scan in LocationManager
+				minigames        = bj.minigames,
+				difficulty       = bj.difficulty or "Medium",
+				fragile          = bj.fragile or false,
+				locationOverride = bj.locationOverride,
+			})
+		end
+	end
+
 	return jobs
 end
 

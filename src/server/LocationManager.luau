@@ -48,6 +48,10 @@ local _slotCounts = {}
 -- _locationsByTier[tier] = { locationName, ... }  — built from Tier attribute on each folder
 local _locationsByTier = {}
 
+-- _bespokeOnlyLocations[locationName] = true  — set BespokeOnly (bool) attribute on the folder
+-- These locations are excluded from procedural job assignment; only reachable via locationOverride
+local _bespokeOnlyLocations = {}
+
 -- _playerAssignment[player] = { locationName, slotIndex, slotModel, clones, fixedClones, furnitureKeys, repairPrompts, doorPrompt }
 local _playerAssignment = {}
 
@@ -96,7 +100,13 @@ else
 				end
 				table.insert(_locationsByTier[tier], locationFolder.Name)
 
-				print(("[LocationManager] Registered '%s' (Tier: %s, %d slots)"):format(locationFolder.Name, tier, slotCount))
+				if locationFolder:GetAttribute("BespokeOnly") == true then
+					_bespokeOnlyLocations[locationFolder.Name] = true
+				end
+
+				print(("[LocationManager] Registered '%s' (Tier: %s, %d slots%s)"):format(
+					locationFolder.Name, tier, slotCount,
+					_bespokeOnlyLocations[locationFolder.Name] and ", BespokeOnly" or ""))
 			else
 				warn(("[LocationManager] '%s' has no Slot_N models — skipping"):format(locationFolder.Name))
 			end
@@ -190,6 +200,14 @@ function LocationManager.GetLocationNames()
 	return names
 end
 
+function LocationManager.GetLocationsByTier()
+	local result = {}
+	for tier, names in pairs(_locationsByTier) do
+		result[tier] = table.clone(names)
+	end
+	return result
+end
+
 function LocationManager.GetAvailableTiers()
 	local tiers = {}
 	for tier, names in pairs(_locationsByTier) do
@@ -235,6 +253,19 @@ function LocationManager.Assign(player, job)
 		return false
 	end
 
+	-- Procedural jobs skip BespokeOnly locations (reserved for bespoke jobs via locationOverride)
+	if not job.locationOverride then
+		local filtered = {}
+		for _, slot in ipairs(freeSlots) do
+			if not _bespokeOnlyLocations[slot.name] then
+				table.insert(filtered, slot)
+			end
+		end
+		if #filtered > 0 then
+			freeSlots = filtered
+		end
+	end
+
 	-- Admin-spawned jobs may request a specific location
 	if type(job.locationOverride) == "string" then
 		local filtered = {}
@@ -272,82 +303,167 @@ function LocationManager.Assign(player, job)
 	slotModel.Name  = chosenName .. "_Slot_" .. chosenIndex
 	slotModel.Parent = _activeSlotsFolder
 
-	-- Clone all furniture pieces listed in job.furniture onto numbered pads
-	local cloneList = {}
-	local furnitureFolder = ServerStorage:FindFirstChild("FurnitureModels")
+	-- Build the repair target list. Two modes:
+	--   Tag-based : slot template has Models with Repairable=true attribute (position-accurate, no FurniturePad needed).
+	--   Pad-based : job.furniture has entries → clone from ServerStorage onto FurniturePad_N.
+	local repairableModels = {}
+	for _, desc in ipairs(slotModel:GetDescendants()) do
+		if desc:IsA("Model") and desc:GetAttribute("Repairable") == true then
+			table.insert(repairableModels, desc)
+		end
+	end
+	local isTagBased      = #repairableModels > 0
+	local cloneList       = {}
+	local repairPrompts   = {}
+	local taggedModelsList  = {}
+	local furnitureKeysList = {}
 
-	for i, furnitureKey in ipairs(job.furniture or {}) do
-		local padName    = "FurniturePad_" .. i
-		local pad        = slotModel:FindFirstChild(padName, true)
-		local typeFolder = furnitureFolder and furnitureFolder:FindFirstChild(furnitureKey)
+	local function attachRepairPrompt(i, anchor)
+		local rp = Instance.new("ProximityPrompt")
+		rp.Name                  = "RepairPrompt"
+		rp.ActionText            = "Repair"
+		rp.ObjectText            = job.name
+		rp.MaxActivationDistance = 10
+		rp.RequiresLineOfSight   = false
+		rp.Exclusivity           = Enum.ProximityPromptExclusivity.AlwaysShow
+		rp.Style                 = Enum.ProximityPromptStyle.Custom
+		rp.Enabled               = true
+		rp.Parent                = anchor
+		repairPrompts[i]         = rp
+		rp.Triggered:Connect(function(triggeringPlayer)
+			if not _playerAssignment[triggeringPlayer] then return end
+			rp.Enabled = false
+			StartMinigame:FireClient(triggeringPlayer, i)
+		end)
+	end
 
-		if not typeFolder then
-			warn("[LocationManager] FurnitureModels/" .. tostring(furnitureKey) .. " not found — skipping piece", i)
-		elseif not pad or not pad:IsA("BasePart") then
-			warn("[LocationManager] " .. padName .. " not found or not a BasePart in", slotModel.Name, "— skipping piece", i)
-		else
+	if isTagBased then
+		-- Sort by RepairOrder (lower = first), then by Name for stability
+		table.sort(repairableModels, function(a, b)
+			local oa = a:GetAttribute("RepairOrder") or 999
+			local ob = b:GetAttribute("RepairOrder") or 999
+			if oa ~= ob then return oa < ob end
+			return a.Name < b.Name
+		end)
+
+		local furnitureFolder = ServerStorage:FindFirstChild("FurnitureModels")
+		local maxPieces = math.min(#repairableModels, math.max(#(job.minigames or {}), 1))
+
+		for i = 1, maxPieces do
+			local taggedModel  = repairableModels[i]
+			local furnitureKey = taggedModel:GetAttribute("FurnitureKey")
+
+			if not furnitureKey then
+				warn(("[LocationManager]   Repairable '%s' has no FurnitureKey — skipping piece %d"):format(taggedModel.Name, i))
+				continue
+			end
+
+			local typeFolder = furnitureFolder and furnitureFolder:FindFirstChild(furnitureKey)
+			if not typeFolder then
+				warn("[LocationManager]   FurnitureModels/" .. furnitureKey .. " not found — skipping piece " .. i)
+				continue
+			end
+
+			-- Position the damage clone at the tagged model's bounding-box base
+			local tagPivot   = taggedModel:GetPivot()
+			local _, tagSize = taggedModel:GetBoundingBox()
+			local tagBaseY   = tagPivot.Position.Y - tagSize.Y / 2
+
 			local variants = getDamagedVariants(typeFolder)
-			if #variants > 0 then
-				local clone = pickRandom(variants):Clone()
-				clone.Parent = slotModel
-				local bbCF, bbSize = clone:GetBoundingBox()
-				local pivotToBottom = clone:GetPivot().Position.Y - bbCF.Position.Y + bbSize.Y / 2
-				clone:PivotTo(pad.CFrame * CFrame.new(0, pivotToBottom, 0))
-				for _, part in ipairs(clone:GetDescendants()) do
-					if part:IsA("BasePart") then part.Anchored = true end
+			if #variants == 0 then
+				warn("[LocationManager]   No Damaged variants in FurnitureModels/" .. furnitureKey)
+				continue
+			end
+
+			local clone = pickRandom(variants):Clone()
+			clone.Parent = slotModel
+			local _, dmgSize = clone:GetBoundingBox()
+			clone:PivotTo(CFrame.new(tagPivot.X, tagBaseY + dmgSize.Y / 2, tagPivot.Z) * tagPivot.Rotation)
+			for _, part in ipairs(clone:GetDescendants()) do
+				if part:IsA("BasePart") then part.Anchored = true end
+			end
+			colorizeClone(clone)
+
+			-- Hide the tagged model while the damage clone is shown
+			for _, part in ipairs(taggedModel:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.Transparency = 1
+					part.CanCollide   = false
 				end
-				colorizeClone(clone)
-				table.insert(cloneList, clone)
+			end
+
+			table.insert(cloneList,         clone)
+			table.insert(taggedModelsList,  taggedModel)
+			table.insert(furnitureKeysList, furnitureKey)
+
+			local anchor = clone.PrimaryPart
+			if not anchor then
+				for _, part in ipairs(clone:GetDescendants()) do
+					if part:IsA("BasePart") then anchor = part; break end
+				end
+			end
+			if anchor then
+				attachRepairPrompt(i, anchor)
+				print(("[LocationManager]   Tag piece %d '%s' → %s"):format(i, furnitureKey, taggedModel.Name))
 			else
-				warn("[LocationManager] No damage variants in", furnitureKey)
+				warn(("[LocationManager]   Damaged clone for '%s' has no BasePart — prompt skipped"):format(furnitureKey))
+			end
+		end
+	else
+		-- Pad-based: clone Damaged_X variants from ServerStorage onto FurniturePad_N
+		local furnitureFolder = ServerStorage:FindFirstChild("FurnitureModels")
+		for i, furnitureKey in ipairs(job.furniture) do
+			local padName    = "FurniturePad_" .. i
+			local pad        = slotModel:FindFirstChild(padName, true)
+			local typeFolder = furnitureFolder and furnitureFolder:FindFirstChild(furnitureKey)
+			if not typeFolder then
+				warn("[LocationManager] FurnitureModels/" .. tostring(furnitureKey) .. " not found — skipping piece", i)
+			elseif not pad or not pad:IsA("BasePart") then
+				warn("[LocationManager] " .. padName .. " not found or not a BasePart in", slotModel.Name, "— skipping piece", i)
+			else
+				local variants = getDamagedVariants(typeFolder)
+				if #variants > 0 then
+					local clone = pickRandom(variants):Clone()
+					clone.Parent = slotModel
+					local bbCF, bbSize = clone:GetBoundingBox()
+					local pivotToBottom = clone:GetPivot().Position.Y - bbCF.Position.Y + bbSize.Y / 2
+					clone:PivotTo(pad.CFrame * CFrame.new(0, pivotToBottom, 0))
+					for _, part in ipairs(clone:GetDescendants()) do
+						if part:IsA("BasePart") then part.Anchored = true end
+					end
+					colorizeClone(clone)
+					table.insert(cloneList, clone)
+				else
+					warn("[LocationManager] No damage variants in", furnitureKey)
+				end
+			end
+		end
+		-- RepairPrompts on the pad parts (not on the furniture model itself)
+		for i = 1, #cloneList do
+			local pad = slotModel:FindFirstChild("FurniturePad_" .. i, true)
+			if pad and pad:IsA("BasePart") then
+				attachRepairPrompt(i, pad)
+				print(("[LocationManager]   Piece %d RepairPrompt on FurniturePad_%d"):format(i, i))
+			else
+				warn(("[LocationManager]   FurniturePad_%d not found — RepairPrompt skipped"):format(i))
 			end
 		end
 	end
 
-	-- RepairPrompt on FurniturePad_N — independent of furniture model structure
-	local repairPrompts = {}
-	for i = 1, #cloneList do
-		local padName = "FurniturePad_" .. i
-		local pad = slotModel:FindFirstChild(padName, true)
-		if pad and pad:IsA("BasePart") then
-			local rp = Instance.new("ProximityPrompt")
-			rp.Name                = "RepairPrompt"
-			rp.ActionText          = "Repair"
-			rp.ObjectText          = job.name
-			rp.MaxActivationDistance = 10
-			rp.RequiresLineOfSight = false
-			rp.Exclusivity         = Enum.ProximityPromptExclusivity.AlwaysShow
-			rp.Style               = Enum.ProximityPromptStyle.Custom
-			rp.Enabled             = (i == 1)   -- only the first prompt is active initially
-			rp.Parent              = pad
-			repairPrompts[i]       = rp
-			rp.Triggered:Connect(function(triggeringPlayer)
-				if not _playerAssignment[triggeringPlayer] then return end
-				rp.Enabled = false
-				StartMinigame:FireClient(triggeringPlayer, i)
-			end)
-			print(("[LocationManager]   Piece %d RepairPrompt on %s"):format(i, padName))
-		else
-			warn(("[LocationManager]   %s not found — RepairPrompt piece %d skipped"):format(padName, i))
-		end
-	end
-
-	-- Add DoorPrompt to the Door part so player can exit or abandon
-	local doorPart = slotModel:FindFirstChild("Door", true)
-	if doorPart and not doorPart:IsA("BasePart") then
-		doorPart = doorPart:FindFirstChildWhichIsA("BasePart")
-	end
+	-- Add DoorPrompt to the Handle part inside the Door model so player can exit or abandon
+	local doorModel = slotModel:FindFirstChild("Door", true)
+	local doorHandle = doorModel and doorModel:FindFirstChild("Handle")
 	local doorPromptInstance = nil
-	if doorPart then
+	if doorHandle and doorHandle:IsA("BasePart") then
 		doorPromptInstance = Instance.new("ProximityPrompt")
 		doorPromptInstance.Name                  = "DoorPrompt"
 		doorPromptInstance.ActionText            = "Leave"
 		doorPromptInstance.ObjectText            = "Exit"
 		doorPromptInstance.MaxActivationDistance = 8
 		doorPromptInstance.Style                 = Enum.ProximityPromptStyle.Custom
-		doorPromptInstance.Parent                = doorPart
+		doorPromptInstance.Parent                = doorHandle
 	else
-		warn("[LocationManager] No 'Door' BasePart in slot — exit prompt skipped")
+		warn("[LocationManager] No 'Door/Handle' BasePart in slot — exit prompt skipped")
 	end
 
 	-- Randomize slot colors
@@ -360,15 +476,17 @@ function LocationManager.Assign(player, job)
 		slotModel     = slotModel,
 		clones        = cloneList,
 		fixedClones   = {},
-		furnitureKeys = job.furniture or {},
+		furnitureKeys = isTagBased and furnitureKeysList or (job.furniture or {}),
+		taggedModels  = taggedModelsList,
 		repairPrompts = repairPrompts,
 		doorPrompt    = doorPromptInstance,
+		tagBased      = isTagBased,
 	}
 
 	-- Teleport player; send full clone list so client wires a prompt per piece
 	local spawnPad = slotModel:FindFirstChild("SpawnPad", true)
 	local cframe   = spawnPad and spawnPad.CFrame or slotModel:GetPivot()
-	TeleportToLocation:FireClient(player, cframe, job, cloneList)
+	TeleportToLocation:FireClient(player, cframe, job, cloneList, chosenName)
 
 	print(("[LocationManager] Assigned %s → %s Slot_%d"):format(player.Name, chosenName, chosenIndex))
 	return true
@@ -422,17 +540,14 @@ FurniturePieceRepaired.OnServerEvent:Connect(function(player, pieceIndex)
 	if not assignment then return end
 	if type(pieceIndex) ~= "number" then return end
 
-	-- Capture colors before destroying the damaged clone
+	-- Extract colors from the damaged clone before destroying it
 	local fabricColor, frameColor
 	local damagedClone = assignment.clones[pieceIndex]
 	if damagedClone and damagedClone.Parent then
 		for _, desc in ipairs(damagedClone:GetDescendants()) do
 			if desc:IsA("BasePart") then
-				if desc.Name == "FabricPart" and not fabricColor then
-					fabricColor = desc.Color
-				elseif desc.Name == "FramePart" and not frameColor then
-					frameColor = desc.Color
-				end
+				if desc.Name == "FabricPart" and not fabricColor then fabricColor = desc.Color end
+				if desc.Name == "FramePart"  and not frameColor  then frameColor  = desc.Color end
 			end
 		end
 		damagedClone:Destroy()
@@ -440,27 +555,50 @@ FurniturePieceRepaired.OnServerEvent:Connect(function(player, pieceIndex)
 	assignment.clones[pieceIndex] = nil
 
 	local furnitureKey = assignment.furnitureKeys[pieceIndex]
-	if furnitureKey then
-		local fixedClone = placeFurnitureDefault(assignment.slotModel, furnitureKey, pieceIndex)
-		if fixedClone then
-			for _, desc in ipairs(fixedClone:GetDescendants()) do
-				if desc:IsA("BasePart") then
-					if desc.Name == "FabricPart" and fabricColor then
-						desc.Color = fabricColor
-					elseif desc.Name == "FramePart" and frameColor then
-						desc.Color = frameColor
-					end
-				end
+	if not furnitureKey then return end
+
+	local function applyColors(model)
+		for _, desc in ipairs(model:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				if desc.Name == "FabricPart" and fabricColor then desc.Color = fabricColor end
+				if desc.Name == "FramePart"  and frameColor  then desc.Color = frameColor  end
 			end
-			assignment.fixedClones[pieceIndex] = fixedClone
 		end
 	end
 
-	-- Enable the next RepairPrompt now that this piece is done
-	local nextPrompt = assignment.repairPrompts[pieceIndex + 1]
-	if nextPrompt and nextPrompt.Parent then
-		nextPrompt.Enabled = true
+	if assignment.tagBased then
+		-- Tag-based: clone Default from FurnitureModels and place at tagged model's position
+		local furnitureFolder = ServerStorage:FindFirstChild("FurnitureModels")
+		local typeFolder      = furnitureFolder and furnitureFolder:FindFirstChild(furnitureKey)
+		local defaultModel    = typeFolder and typeFolder:FindFirstChild("Default")
+		if not defaultModel then
+			warn("[LocationManager] No 'Default' model in FurnitureModels/" .. furnitureKey)
+			return
+		end
+		local fixedClone = defaultModel:Clone()
+		fixedClone.Parent = assignment.slotModel
+		local taggedModel = assignment.taggedModels and assignment.taggedModels[pieceIndex]
+		if taggedModel then
+			local tagPivot   = taggedModel:GetPivot()
+			local _, tagSize = taggedModel:GetBoundingBox()
+			local tagBaseY   = tagPivot.Position.Y - tagSize.Y / 2
+			local _, fixSize = fixedClone:GetBoundingBox()
+			fixedClone:PivotTo(CFrame.new(tagPivot.X, tagBaseY + fixSize.Y / 2, tagPivot.Z) * tagPivot.Rotation)
+		end
+		for _, desc in ipairs(fixedClone:GetDescendants()) do
+			if desc:IsA("BasePart") then desc.Anchored = true end
+		end
+		applyColors(fixedClone)
+		assignment.fixedClones[pieceIndex] = fixedClone
+	else
+		-- Pad-based: place Default on the FurniturePad
+		local fixedClone = placeFurnitureDefault(assignment.slotModel, furnitureKey, pieceIndex)
+		if fixedClone then
+			applyColors(fixedClone)
+			assignment.fixedClones[pieceIndex] = fixedClone
+		end
 	end
+	-- All prompts are enabled from the start (free-order repair) — no sequential enabling needed
 end)
 
 return LocationManager

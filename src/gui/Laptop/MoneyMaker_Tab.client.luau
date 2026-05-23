@@ -32,10 +32,18 @@ local MoneyMaker_Tab  = playerGui
 local scrollFrame     = MoneyMaker_Tab:WaitForChild("JobListScroll")
 local jobCardTemplate = scrollFrame:WaitForChild("JobCardTemplate")
 
-local LaptopRemotes   = ReplicatedStorage:WaitForChild("LaptopRemotes")
-local RequestJobs     = LaptopRemotes:WaitForChild("RequestJobs")
-local AcceptJob       = LaptopRemotes:WaitForChild("AcceptJob")
-local JobBoardRefresh = LaptopRemotes:WaitForChild("JobBoardRefresh")
+local LaptopRemotes          = ReplicatedStorage:WaitForChild("LaptopRemotes")
+local RequestJobs            = LaptopRemotes:WaitForChild("RequestJobs")
+local AcceptJob              = LaptopRemotes:WaitForChild("AcceptJob")
+local JobBoardRefresh        = LaptopRemotes:WaitForChild("JobBoardRefresh")
+local RequestLocationsByTier = LaptopRemotes:WaitForChild("RequestLocationsByTier")
+
+local _locationsByTier = {}
+
+-- "StudioApartment" → "Studio Apartment"
+local function splitCamelCase(s)
+	return (s:gsub("(%l)(%u)", "%1 %2"))
+end
 
 local TIER_COLOR = {
     Starter   = Color3.fromRGB(180, 180, 180),
@@ -62,15 +70,32 @@ local function populateBoard(jobs)
         card.Name    = "JobCard_" .. job.id
         card.Visible = true
 
-        card:WaitForChild("JobName").Text      = job.name
-        card:WaitForChild("JobDetails").Text   = job.details
-        -- card:WaitForChild("TierLabel").Text      = job.tier
+        -- Build location string for this job
+        local locationText
+        if job.locationOverride then
+            locationText = splitCamelCase(job.locationOverride)
+        else
+            local locs = _locationsByTier[job.tier] or {}
+            local names = {}
+            for _, n in ipairs(locs) do
+                table.insert(names, splitCamelCase(n))
+            end
+            locationText = table.concat(names, " / ")
+        end
+
+        card:WaitForChild("JobName").Text    = locationText ~= "" and locationText or job.name
+        card:WaitForChild("JobDetails").Text = job.details
         card:WaitForChild("PayLabel").Text       = "$" .. tostring(job.pay)
         card:WaitForChild("FollowersLabel").Text = "+" .. tostring(job.followers) .. " followers"
 
         local color = TIER_COLOR[job.tier]
         if color then
             card:WaitForChild("PrestigeHighlight").BackgroundColor3 = color
+        end
+
+        local tierLabel = card:FindFirstChild("TierLabel")
+        if tierLabel then
+            tierLabel.Text = job.tier
         end
 
         card:WaitForChild("AcceptButton").MouseButton1Click:Connect(function()
@@ -83,6 +108,7 @@ local function populateBoard(jobs)
 end
 
 local function refreshBoard()
+    _locationsByTier = RequestLocationsByTier:InvokeServer() or {}
     local jobs = RequestJobs:InvokeServer()
     if jobs then
         populateBoard(jobs)

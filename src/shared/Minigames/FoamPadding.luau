@@ -159,6 +159,30 @@ function FoamPadding.Start(container, config)
 	local timeLimit  = p.timeLimit
 	local pieceCount = p.pieceCount
 
+	-- Foam texture overlay (applied to placed piece cells and tray thumbnails)
+	local _foamImage = ""
+	local _foamObj   = ReplicatedStorage:WaitForChild("GuiAssets"):WaitForChild("foam")
+	if _foamObj:IsA("ImageLabel") or _foamObj:IsA("ImageButton") then
+		_foamImage = _foamObj.Image
+	elseif _foamObj:IsA("Decal") or _foamObj:IsA("Texture") then
+		_foamImage = _foamObj.Texture
+	end
+	game:GetService("ContentProvider"):PreloadAsync({ _foamObj })
+
+	local function addFoamTexture(frame, zIndex, initialTransp)
+		local img = Instance.new("ImageLabel")
+		img.Size                   = UDim2.fromScale(1, 1)
+		img.BackgroundTransparency = 1
+		img.Image                  = _foamImage
+		img.ImageTransparency      = initialTransp ~= nil and initialTransp or 0.55
+		img.ScaleType              = Enum.ScaleType.Stretch
+		img.ImageColor3            = Color3.new(1, 1, 1)
+		img.BorderSizePixel        = 0
+		img.ZIndex                 = zIndex
+		img.Parent                 = frame
+		return img
+	end
+
 	local mold, pieceDefs = generateMold(pieceCount)
 	local actualCount = #pieceDefs
 
@@ -292,9 +316,11 @@ function FoamPadding.Start(container, config)
 
 	-- ── Cell frames ───────────────────────────────────────────────────────
 
-	local cellFrames = {}
+	local cellFrames   = {}
+	local cellTextures = {}   -- foam overlay per mold cell; hidden until a piece is placed
 	for r = 1, GRID_ROWS do
-		cellFrames[r] = {}
+		cellFrames[r]   = {}
+		cellTextures[r] = {}
 		for c = 1, GRID_COLS do
 			local isMold = mold[r][c] ~= 0
 			local cell = Instance.new("Frame")
@@ -311,6 +337,7 @@ function FoamPadding.Start(container, config)
 				stroke.Thickness = 1
 				stroke.Transparency = 0.3
 				stroke.Parent = cell
+				cellTextures[r][c] = addFoamTexture(cell, 3, 1)  -- hidden until placed
 			end
 			Instance.new("UICorner", cell).CornerRadius = UDim.new(0, 4)
 			cellFrames[r][c] = cell
@@ -375,6 +402,7 @@ function FoamPadding.Start(container, config)
 			sq.ZIndex = 8
 			sq.Parent = inner
 			Instance.new("UICorner", sq).CornerRadius = UDim.new(0, 3)
+			addFoamTexture(sq, 9)
 		end
 	end
 
@@ -452,12 +480,15 @@ function FoamPadding.Start(container, config)
 
 	local function restoreCell(r, c)
 		local cell = cellFrames[r][c]
+		local tex  = cellTextures[r] and cellTextures[r][c]
 		if playerGrid[r][c] ~= 0 then
 			cell.BackgroundColor3 = pieceState[playerGrid[r][c]].color
 			cell.BackgroundTransparency = 0.05
+			if tex then tex.ImageTransparency = 0.55 end
 		elseif mold[r][c] ~= 0 then
 			cell.BackgroundColor3 = COL_MOLD_EMPTY
 			cell.BackgroundTransparency = 0
+			if tex then tex.ImageTransparency = 1 end
 		else
 			cell.BackgroundColor3 = COL_VOID_BG
 			cell.BackgroundTransparency = 0.70
@@ -524,6 +555,8 @@ function FoamPadding.Start(container, config)
 			playerGrid[r2][c2] = idx
 			cellFrames[r2][c2].BackgroundColor3 = ps.color
 			cellFrames[r2][c2].BackgroundTransparency = 0.05
+			local tex = cellTextures[r2] and cellTextures[r2][c2]
+			if tex then tex.ImageTransparency = 0.55 end
 		end
 		ps.placed   = true
 		filledCells = filledCells + #ps.cells

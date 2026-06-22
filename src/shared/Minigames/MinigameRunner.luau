@@ -25,11 +25,13 @@ local SFX           = require(game:GetService("ReplicatedStorage"):WaitForChild(
 local GameConfig    = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("GameConfig"))
 
 -- ── Module registry ───────────────────────────────────────────────────────
+-- Pre-require all modules now so their module-level PreloadAsync calls run behind
+-- the loading screen, not on the first minigame trigger.
 local MINIGAME_MODULES = {
-	TackRemoval   = script.Parent.TackRemoval,
-	StapleGunning = script.Parent.StapleGunning,
-	SeamStitching = script.Parent.SeamStitching,
-	FoamPadding   = script.Parent.FoamPadding,
+	TackRemoval   = require(script.Parent.TackRemoval),
+	StapleGunning = require(script.Parent.StapleGunning),
+	SeamStitching = require(script.Parent.SeamStitching),
+	FoamPadding   = require(script.Parent.FoamPadding),
 }
 
 local RESULT_COLORS = {
@@ -183,9 +185,9 @@ end
 -- ── Internal helpers ──────────────────────────────────────────────────────
 
 local function requireModule(name)
-	local moduleRef = MINIGAME_MODULES[name]
-	assert(moduleRef, "MinigameRunner: unknown minigame '" .. name .. "'")
-	return require(moduleRef)
+	local m = MINIGAME_MODULES[name]
+	assert(m, "MinigameRunner: unknown minigame '" .. name .. "'")
+	return m
 end
 
 -- ── Public API ────────────────────────────────────────────────────────────

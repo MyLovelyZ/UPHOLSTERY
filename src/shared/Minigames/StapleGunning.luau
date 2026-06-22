@@ -14,11 +14,31 @@
 	Result = "Fail" | "Pass" | "Good" | "Perfect"
 ]]
 
-local RunService       = game:GetService("RunService")
-local TweenService     = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local GameConfig       = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("GameConfig"))
-local SFX              = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("SFXPlayer"))
+local RunService        = game:GetService("RunService")
+local TweenService      = game:GetService("TweenService")
+local UserInputService  = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContentProvider   = game:GetService("ContentProvider")
+local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local SFX        = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SFXPlayer"))
+
+-- ── GuiAssets  (loaded at module scope so MinigameRunner's pre-require caches them at game start)
+local _woodImage = ""
+local _gunImage  = ""
+do
+	local assets  = ReplicatedStorage:WaitForChild("GuiAssets")
+	local woodObj = assets:WaitForChild("woodgrain")
+	local gunObj  = assets:WaitForChild("staplegun")
+	ContentProvider:PreloadAsync({ woodObj, gunObj })
+	local function getImg(obj)
+		if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then return obj.Image
+		elseif obj:IsA("Decal")  or obj:IsA("Texture")     then return obj.Texture
+		end
+		return ""
+	end
+	_woodImage = getImg(woodObj)
+	_gunImage  = getImg(gunObj)
+end
 
 local cfg   = GameConfig.StapleGunning
 local mgCfg = GameConfig.Minigame
@@ -157,12 +177,25 @@ local function buildUI(container, zones, goodW, perfW, stapleCount, timeLimit)
 	track.ClipsDescendants = true
 	track.Parent           = container
 	table.insert(_instances, track)
-	Instance.new("UICorner", track).CornerRadius = UDim.new(0.5, 0)
+	-- Instance.new("UICorner", track).CornerRadius = UDim.new(0.5, 0)
 
 	local trackStroke = Instance.new("UIStroke")
 	trackStroke.Color     = Color3.fromRGB(55, 42, 82)
 	trackStroke.Thickness = 1.5
 	trackStroke.Parent    = track
+
+	-- Wood grain texture on track background
+	if _woodImage ~= "" then
+		local woodTex = Instance.new("ImageLabel")
+		woodTex.Size                   = UDim2.fromScale(1, 1)
+		woodTex.BackgroundTransparency = 1
+		woodTex.Image                  = _woodImage
+		woodTex.ImageTransparency      = 0.58
+		woodTex.ScaleType              = Enum.ScaleType.Stretch
+		woodTex.ImageColor3            = Color3.fromRGB(200, 160, 100)
+		woodTex.ZIndex                 = 1
+		woodTex.Parent                 = track
+	end
 
 	-- Zone pairs
 	for _, center in ipairs(zones) do
@@ -200,16 +233,17 @@ local function buildUI(container, zones, goodW, perfW, stapleCount, timeLimit)
 		star.Parent              = pZone
 	end
 
-	-- Moving bar
-	local bar = Instance.new("Frame")
-	bar.Size             = UDim2.new(0, 8, 1, -8)
-	bar.AnchorPoint      = Vector2.new(0.5, 0.5)
-	bar.Position         = UDim2.fromScale(0, 0.5)
-	bar.BackgroundColor3 = COL_BAR
-	bar.BorderSizePixel  = 0
-	bar.ZIndex           = 6
-	bar.Parent           = track
-	Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 3)
+	-- Staple gun image (moves left-right above the track; not clipped by track)
+	local gun = Instance.new("ImageLabel")
+	gun.Size                   = UDim2.fromOffset(60, 188)
+	gun.AnchorPoint            = Vector2.new(0.5, 0.5)
+	gun.Position               = UDim2.new(0.08, 0, 0.37, 0)
+	gun.BackgroundTransparency = 1
+	gun.Image                  = _gunImage
+	gun.ScaleType              = Enum.ScaleType.Stretch
+	gun.ZIndex                 = 7
+	gun.Parent                 = container
+	table.insert(_instances, gun)
 
 	-- ── FIRE button ───────────────────────────────────────────────────────
 	local fireBtn = Instance.new("TextButton")
@@ -242,7 +276,7 @@ local function buildUI(container, zones, goodW, perfW, stapleCount, timeLimit)
 	feedback.Parent            = container
 	table.insert(_instances, feedback)
 
-	return bar, fireBtn, scoreLabel, timerLabel, timerBar, feedback, vignette
+	return gun, fireBtn, scoreLabel, timerLabel, timerBar, feedback, vignette, track
 end
 
 -- ── Public interface ──────────────────────────────────────────────────────
@@ -270,7 +304,7 @@ function StapleGunning.Start(container, config)
 
 	local zones = generateZones(p.zoneCount, goodW)
 
-	local bar, fireBtn, scoreLabel, timerLabel, timerBar, feedback, vignette =
+	local gun, fireBtn, scoreLabel, timerLabel, timerBar, feedback, vignette, track =
 		buildUI(container, zones, goodW, perfW, stapleCount, timeLimit)
 
 	local startClock = os.clock()
@@ -290,7 +324,7 @@ function StapleGunning.Start(container, config)
 		barPos = barPos + direction * currentSpeed * dt
 		if barPos >= 1 then barPos = 1; direction = -1
 		elseif barPos <= 0 then barPos = 0; direction = 1 end
-		bar.Position = UDim2.fromScale(barPos, 0.5)
+		gun.Position = UDim2.new(0.08 + barPos * 0.84, 0, 0.37, 0)
 	end)
 	table.insert(_connections, hbConn)
 
@@ -373,6 +407,22 @@ function StapleGunning.Start(container, config)
 		task.delay(0.07, function()
 			TweenService:Create(fireBtn, TweenInfo.new(0.14), { BackgroundColor3 = COL_BTN }):Play()
 		end)
+
+		-- Staple marker: drop a [ or ] glyph (alternating) at the fire position
+		local staple = Instance.new("TextLabel")
+		staple.Size                 = UDim2.fromOffset(18, 28)
+		staple.AnchorPoint          = Vector2.new(0.5, 0.5)
+		staple.Position             = UDim2.fromScale(barPos, 0.5)
+		staple.BackgroundTransparency = 1
+		staple.Text                 = staplesFired % 2 == 1 and "[" or "]"
+		staple.TextColor3           = Color3.new(0, 0, 0)
+		staple.Font                 = Enum.Font.Code
+		staple.TextSize             = 17
+		staple.TextTransparency     = 0.5
+		staple.ZIndex               = 5
+		staple.Parent               = track
+		TweenService:Create(staple, TweenInfo.new(0.12, Enum.EasingStyle.Back), { TextTransparency = 0 }):Play()
+		table.insert(_instances, staple)
 
 		if staplesFired >= stapleCount then
 			_finished = true

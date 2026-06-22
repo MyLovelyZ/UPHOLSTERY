@@ -39,7 +39,6 @@ local TACK_D  = 52   -- tack circle diameter
 local RING_D  = 130  -- approach ring starting diameter
 
 -- ── Colours ───────────────────────────────────────────────────────────────
-local COL_TACK_IDLE    = Color3.fromRGB(210, 175, 60)
 local COL_TACK_BG      = Color3.fromRGB(22, 17, 32)
 local COL_RING         = Color3.fromRGB(210, 175, 60)
 local COL_HIT_PERFECT  = Color3.fromRGB(80, 220, 120)
@@ -233,22 +232,45 @@ function TackRemoval.Start(container, config)
 			Instance.new("UICorner", bgCircle).CornerRadius = UDim.new(1, 0)
 			table.insert(_instances, bgCircle)
 
-			-- Tack button (clickable)
+			-- Tack button (clickable) — styled as a metal nail head viewed from above
 			local tack = Instance.new("TextButton")
 			tack.Size = UDim2.new(0, TACK_D, 0, TACK_D)
 			tack.AnchorPoint = Vector2.new(0.5, 0.5)
 			tack.Position = UDim2.fromScale(px, py)
-			tack.BackgroundColor3 = COL_TACK_IDLE
-			tack.BackgroundTransparency = 0.08
-			tack.Text = tostring(i)
-			tack.TextColor3 = Color3.fromRGB(18, 14, 26)
-			tack.Font = Enum.Font.GothamBold
-			tack.TextSize = 20
+			tack.BackgroundColor3 = Color3.fromRGB(80, 80, 88)
+			tack.BackgroundTransparency = 0
+			tack.Text = ""
 			tack.BorderSizePixel = 0
 			tack.AutoButtonColor = false
 			tack.ZIndex = 10
 			tack.Parent = container
 			Instance.new("UICorner", tack).CornerRadius = UDim.new(1, 0)
+			-- Diagonal metallic gradient: light upper-left → dark lower-right
+			local tackGrad = Instance.new("UIGradient")
+			tackGrad.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0,    Color3.fromRGB(165, 165, 178)),
+				ColorSequenceKeypoint.new(0.42, Color3.fromRGB(88,  88,  98)),
+				ColorSequenceKeypoint.new(1,    Color3.fromRGB(22,  22,  28)),
+			})
+			tackGrad.Rotation = 135
+			tackGrad.Parent = tack
+			-- Raised nail-dome highlight at center
+			local nailHead = Instance.new("Frame")
+			nailHead.Size = UDim2.fromOffset(13, 13)
+			nailHead.AnchorPoint = Vector2.new(0.5, 0.5)
+			nailHead.Position = UDim2.fromScale(0.5, 0.5)
+			nailHead.BackgroundColor3 = Color3.fromRGB(215, 218, 230)
+			nailHead.BorderSizePixel = 0
+			nailHead.ZIndex = 11
+			nailHead.Parent = tack
+			Instance.new("UICorner", nailHead).CornerRadius = UDim.new(1, 0)
+			local headGrad = Instance.new("UIGradient")
+			headGrad.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(252, 252, 255)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(145, 148, 162)),
+			})
+			headGrad.Rotation = 135
+			headGrad.Parent = nailHead
 			table.insert(_instances, tack)
 
 			-- Ring shrink tween

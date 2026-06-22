@@ -17,11 +17,26 @@
 	Result = "Fail" | "Pass" | "Good" | "Perfect"
 ]]
 
-local RunService       = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService     = game:GetService("TweenService")
-local GameConfig       = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("GameConfig"))
-local SFX              = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("SFXPlayer"))
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
+local TweenService      = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContentProvider   = game:GetService("ContentProvider")
+local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local SFX        = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SFXPlayer"))
+
+-- ── GuiAssets ─────────────────────────────────────────────────────────────
+local _needleImage = ""
+do
+	local assets    = ReplicatedStorage:WaitForChild("GuiAssets")
+	local needleObj = assets:WaitForChild("needle")
+	ContentProvider:PreloadAsync({ needleObj })
+	if needleObj:IsA("ImageLabel") or needleObj:IsA("ImageButton") then
+		_needleImage = needleObj.Image
+	elseif needleObj:IsA("Decal") or needleObj:IsA("Texture") then
+		_needleImage = needleObj.Texture
+	end
+end
 
 local cfg   = GameConfig.SeamStitching
 local mgCfg = GameConfig.Minigame
@@ -347,22 +362,26 @@ local function buildUI(container, pathSegments, segCount)
 	Instance.new("UICorner", endMark).CornerRadius = UDim.new(1, 0)
 	table.insert(_instances, endMark)
 
-	-- Needle
-	local needle = Instance.new("Frame")
+	-- Needle image — tip at bottom, AnchorPoint puts tip at the tracked position
+	local needle = Instance.new("ImageLabel")
 	needle.Name = "Needle"
-	needle.Size = UDim2.new(0, 24, 0, 24)
-	needle.AnchorPoint = Vector2.new(0.5, 0.5)
+	needle.Size = UDim2.fromOffset(20, 130)
+	needle.AnchorPoint = Vector2.new(0.5, 0.95)
 	needle.Position = UDim2.fromScale(s[1], s[2])
-	needle.BackgroundColor3 = COL_NEEDLE
-	needle.BorderSizePixel = 0; needle.ZIndex = 6
+	needle.BackgroundTransparency = 1
+	needle.Image = _needleImage
+	needle.ImageColor3 = COL_NEEDLE
+	needle.ScaleType = Enum.ScaleType.Stretch
+	needle.BorderSizePixel = 0
+	needle.ZIndex = 6
 	needle.Parent = canvas
-	Instance.new("UICorner", needle).CornerRadius = UDim.new(1, 0)
 	table.insert(_instances, needle)
 
+	-- Thread dot at the eye of the needle (~20 % from the top of the image)
 	local threadDot = Instance.new("Frame")
-	threadDot.Size = UDim2.fromScale(0.38, 0.38)
+	threadDot.Size = UDim2.fromOffset(8, 8)
 	threadDot.AnchorPoint = Vector2.new(0.5, 0.5)
-	threadDot.Position = UDim2.fromScale(0.5, 0.5)
+	threadDot.Position = UDim2.fromScale(0.5, 0.20)
 	threadDot.BackgroundColor3 = COL_THREAD
 	threadDot.BorderSizePixel = 0
 	threadDot.Parent = needle
@@ -459,7 +478,7 @@ function SeamStitching.Start(container, config)
 		end
 		-- On a clean finish, never leave the needle/meter stuck on red.
 		if _result ~= "Fail" then
-			needle.BackgroundColor3 = COL_NEEDLE
+			needle.ImageColor3 = COL_NEEDLE
 			meterFill.BackgroundColor3 = COL_METER_OK
 		end
 		SFX.Play("StitchComplete")
@@ -480,9 +499,9 @@ function SeamStitching.Start(container, config)
 			highlightSegment(canvas, segmentIndex)
 			-- Flash needle green
 			TweenService:Create(needle, TweenInfo.new(0.12), {
-				BackgroundColor3 = Color3.fromRGB(80, 220, 110)
+				ImageColor3 = Color3.fromRGB(80, 220, 110)
 			}):Play()
-			task.delay(0.20, function() needle.BackgroundColor3 = COL_NEEDLE end)
+			task.delay(0.20, function() needle.ImageColor3 = COL_NEEDLE end)
 		end
 	end
 
@@ -576,7 +595,7 @@ function SeamStitching.Start(container, config)
 		-- Bar full → too many/large misses → fail and stop.
 		if budgetFrac >= 1 then
 			needle.Position = UDim2.fromScale(sx, sy)
-			needle.BackgroundColor3 = COL_TRAIL_BAD
+			needle.ImageColor3 = COL_TRAIL_BAD
 			finishGame(true)
 			return
 		end
@@ -586,7 +605,7 @@ function SeamStitching.Start(container, config)
 
 		-- Needle follows cursor — no snap
 		needle.Position = UDim2.fromScale(sx, sy)
-		needle.BackgroundColor3 = onPath and COL_NEEDLE or COL_TRAIL_BAD
+		needle.ImageColor3 = onPath and COL_NEEDLE or COL_TRAIL_BAD
 
 		-- Throttled stitch ambient sound (every 0.14s while dragging)
 		if now - lastStitchSfx >= 0.14 then

@@ -41,6 +41,10 @@ Players.PlayerAdded:Connect(function(player)
 	reputation.Value  = 0.0
 	reputation.Parent = playerData
 
+	local Inventory = Instance.new("Folder")
+	Inventory.Name   = "Inventory"
+	Inventory.Parent = playerData
+
 	local ok, saved = pcall(function()
 		return PlayerDataStore:GetAsync("Player_" .. player.UserId)
 	end)
@@ -48,6 +52,12 @@ Players.PlayerAdded:Connect(function(player)
 		if saved.usd        then usd.Value        = saved.usd        end
 		if saved.followers  then followers.Value   = saved.followers  end
 		if saved.reputation then reputation.Value  = saved.reputation end
+		if saved.Inventory then
+			for _, item in ipairs(saved.Inventory) do
+				local clonedItem = item:Clone()
+				clonedItem.Parent = Inventory
+			end
+		end
 	elseif not ok then
 		warn("[PlayerData] Load failed for", player.Name, ":", saved)
 	end

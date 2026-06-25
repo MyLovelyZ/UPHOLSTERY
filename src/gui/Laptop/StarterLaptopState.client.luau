@@ -43,3 +43,22 @@ LeftPanel.Visible = true
 TaskBar.Visible = true
 BrowsahButton.Visible = true
 QuoteLabel.Visible = true
+
+-- kita setting bagian Shop_Tab ygy
+
+local ShopBody = Shop_Tab:WaitForChild("Body")
+local ShopScrollingFrame = ShopBody:WaitForChild("ScrollingFrame")
+local ShopItemDetail = ShopBody:WaitForChild("itemDetail")
+
+ShopScrollingFrame.Visible = true
+ShopItemDetail.Visible = false
+
+ShopScrollingFrame.Size = UDim2.new(0.964, 0, 0.972, 0)
+
+-- bagian shop item detail beb
+
+ShopItemDetail:WaitForChild("buyButton").Visible = true
+ShopItemDetail:WaitForChild("buyButton").Active = true
+ShopItemDetail:WaitForChild("itemImage").Visible = true
+ShopItemDetail:WaitForChild("itemDes").Visible = true
+ShopItemDetail:WaitForChild("itemName").Visible = true

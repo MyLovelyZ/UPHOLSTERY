@@ -7,7 +7,7 @@ local LaptopGui = PlayerGui:WaitForChild("LaptopGui")
 local LaptopScreen = LaptopGui:WaitForChild("LaptopScreen")
 
 local Apps     = LaptopScreen:WaitForChild("Apps")
-local Shop_Tab = Apps:WaitForChild("Shop_Tab")
+local Shop_Tab = Apps:WaitForChild("Shop_Tab"):WaitForChild("Body")
 
 local ShopData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Data"):WaitForChild("ShopData"))
 
@@ -16,19 +16,85 @@ local ProductTemplate = ScrollingFrame:WaitForChild("ProductTemplate")
 ProductTemplate.Visible = false
 
 local categories = {
-    ShopData.Tools,
-    ShopData.JobManagement,
-    ShopData.Efficiency,
-    ShopData.Reputation,
+	ShopData.Tools,
+	ShopData.JobManagement,
+	ShopData.Efficiency,
+	ShopData.Reputation,
 }
 
+local showDetail = nil
+
 for _, category in ipairs(categories) do
-    for _, product in ipairs(category) do
-        local card = ProductTemplate:Clone()
-        card.Name = product.id
-        card.ProductImg.Image = product.icon
-        card.ProductText.Text = product.price .. " Cash"
-        card.Visible = true
-        card.Parent = ScrollingFrame
-    end
+	for _, product in ipairs(category) do
+		local card = ProductTemplate:Clone()
+		card.Name = product.id
+
+		local imageButton = card:FindFirstChild("ImageButton")
+
+		if imageButton then
+			imageButton.Image = product.icon
+			imageButton.MouseButton1Click:Connect(function()
+				if showDetail then
+					showDetail(product)
+				end
+			end)
+
+			local productText = imageButton:FindFirstChild("ProductText")
+			if productText then
+				productText.Text = product.price .. " Cash"
+			else
+				warn("[Shop_Tab] ImageButton tidak punya 'ProductText' — harga dilewati untuk", product.id)
+			end
+		else
+			warn("[Shop_Tab] ProductTemplate tidak punya 'ImageButton' — gambar/klik/harga dilewati untuk", product.id)
+		end
+
+		card.Visible = true
+		card.Parent  = ScrollingFrame
+	end
+end
+
+local ItemDetail = Shop_Tab:WaitForChild("itemDetail", 5)
+if not ItemDetail then
+	warn("[Shop_Tab] 'itemDetail' tidak ditemukan di Body — panel detail dinonaktifkan (produk tetap tampil).")
+	return
+end
+
+local BuyButton = ItemDetail:FindFirstChild("buyButton", true)
+local ItemImage = ItemDetail:FindFirstChild("itemImage", true)
+local ItemDes   = ItemDetail:FindFirstChild("itemDes", true)
+local ItemName  = ItemDetail:FindFirstChild("itemName", true)
+
+for name, inst in pairs({ BuyButton = BuyButton, itemImage = ItemImage, itemDes = ItemDes, itemName = ItemName }) do
+	if not inst then
+		warn("[Shop_Tab] itemDetail tidak punya '" .. name .. "' — field ini dilewati.")
+	end
+end
+
+ItemDetail.Visible = false
+
+local SCROLL_SIZE_COLLAPSED = UDim2.new(0.964, 0, 0.972, 0)
+local SCROLL_SIZE_EXPANDED  = UDim2.new(0.771, 0, 0.972, 0)
+
+local function syncScrollSize()
+	ScrollingFrame.Size = ItemDetail.Visible and SCROLL_SIZE_EXPANDED or SCROLL_SIZE_COLLAPSED
+end
+syncScrollSize()
+ItemDetail:GetPropertyChangedSignal("Visible"):Connect(syncScrollSize)
+
+local selectedProduct = nil
+
+showDetail = function(product)
+	if ItemDetail.Visible and selectedProduct == product then
+		selectedProduct    = nil
+		ItemDetail.Visible = false
+		return
+	end
+
+	selectedProduct = product
+	if ItemName  then ItemName.Text   = product.name        end
+	if ItemDes   then ItemDes.Text    = product.description end
+	if ItemImage then ItemImage.Image = product.icon        end
+	if BuyButton then BuyButton.Text  = product.price .. " Cash" end
+	ItemDetail.Visible = true
 end

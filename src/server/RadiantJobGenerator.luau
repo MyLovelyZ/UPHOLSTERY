@@ -28,6 +28,17 @@ local DAMAGE_POOL = GameConfig.JobDamagePool
 local FLAVOR_POOL = GameConfig.JobFlavorPool
 local TIER_CONFIG = GameConfig.JobTierConfig
 
+-- Maps job tier → JobFlavorPool sub-table key.
+local FLAVOR_GROUP = {
+	Starter   = "Casual",
+	Mid       = "Casual",
+	Premium   = "Upscale",
+	Prestige  = "Upscale",
+	Exclusive = "Elite",
+	Elite     = "Elite",
+	Special   = "Elite",
+}
+
 -- ── Furniture pool ────────────────────────────────────────────────────────
 -- Built once at require time by scanning ServerStorage.FurnitureModels.
 -- Each subfolder needs a "Tier" string attribute; "Category" is optional.
@@ -241,9 +252,10 @@ function RadiantJobGenerator.Generate(count, allowedTiers)
 
 		if #furnitureList == 0 then continue end
 
-		local jobName = buildJobName(pieceCount, displayNames, damageLabels, minigames)
-		local flavor  = pickRandom(FLAVOR_POOL)
-		local details = flavor .. " (" .. table.concat(damageLabels, ", ") .. ")"
+		local jobName    = buildJobName(pieceCount, displayNames, damageLabels, minigames)
+		local flavorPool = FLAVOR_POOL[FLAVOR_GROUP[jobTier] or "Casual"] or FLAVOR_POOL.Casual
+		local flavor     = pickRandom(flavorPool)
+		local details    = flavor .. " (" .. table.concat(damageLabels, ", ") .. ")"
 
 		table.insert(jobs, {
 			id         = i,   -- reassigned by LaptopData with a server-unique ID

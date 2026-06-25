@@ -1,200 +1,85 @@
 --[[
 	TalkogramHandler
-	Manages the Talkogram social feed: DataStore persistence, stub data,
-	and remote handlers for RequestFeed, RequestPost, PostComment, LikePost.
-	SavePost is exposed so JobPool can create posts on job completion.
+	Session-scoped Talkogram feed — no DataStore, posts reset each server
+	session. Posts are generated on job completion (success, fail, abandon)
+	and broadcast to all clients in real-time via TalkogramPost.
+	SavePost is called by JobPool with raw job/player facts; this module
+	generates captions, NPC comments, and author names.
 ]]
 
-local DataStoreService  = game:GetService("DataStoreService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TalkogramData = require(script.Parent:WaitForChild("TalkogramData"))
 
-local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local _sessionPosts  = {}   -- all posts this session, newest-first
+local _TalkogramPost = nil  -- RemoteEvent set in Init
+local _postCounter   = 0
 
-local FeedStore = DataStoreService:GetDataStore("TalkogramFeed")
+-- ── SavePost ──────────────────────────────────────────────────────────────
+-- data = {
+--   playerName   : string
+--   postType     : "success" | "fail" | "abandon"
+--   result       : "Perfect" | "Good" | "Pass" | "Fail" | "Abandon"
+--   furnitureKey : string | nil
+--   tier         : string
+-- }
 
-local _serverPosts   = {}
-local _extraComments = {}
+local function savePost(data)
+	_postCounter = _postCounter + 1
 
--- ── Fallback Talkogram feed ───────────────────────────────────────────────
+	local postType   = data.postType   or "success"
+	local playerName = data.playerName or "unknown"
+	local furniKey   = data.furnitureKey
+	local tier       = data.tier or "Starter"
 
-local STUB_FEED = {
-	{
-		id       = 1,
-		title    = "My First Sofa!",
-		author   = "CraftyPlayer1",
-		imageId  = 0,
-		likes    = 3,
-		comments = {
-			{ author = "ThreadQueen", text = "Looks so clean!" },
-			{ author = "FabricFan",   text = "Love the colour choice" },
-		},
-	},
-	{
-		id       = 2,
-		title    = "Ottoman Empire",
-		author   = "StitchWitch99",
-		imageId  = 0,
-		likes    = 12,
-		comments = {
-			{ author = "VelvetVibes", text = "Incredible craftsmanship!!" },
-		},
-	},
-	{
-		id       = 3,
-		title    = "Dining Chair Glow-Up",
-		author   = "TackMaster",
-		imageId  = 0,
-		likes    = 7,
-		comments = {},
-	},
-	{
-		id       = 4,
-		title    = "Weekend Project",
-		author   = "FoamLord",
-		imageId  = 0,
-		likes    = 1,
-		comments = {
-			{ author = "CraftyPlayer1", text = "Nice work!" },
-		},
-	},
-}
-
--- ── DataStore helpers ─────────────────────────────────────────────────────
-
-local function savePost(post)
-	table.insert(_serverPosts, 1, post)
-
-	local ok, err = pcall(function()
-		FeedStore:UpdateAsync("GlobalFeed", function(current)
-			local posts = current or {}
-			table.insert(posts, 1, post)
-			while #posts > 100 do
-				table.remove(posts)
-			end
-			return posts
-		end)
-	end)
-	if not ok then
-		warn("[TalkogramHandler] savePost failed:", err)
+	local authorName
+	if postType == "success" then
+		authorName = playerName
+	else
+		authorName = TalkogramData.GenerateUsername()
 	end
+
+	local caption  = TalkogramData.GenerateCaption(postType, data.result, furniKey, playerName)
+	local comments = TalkogramData.GenerateComments(postType, playerName, furniKey, tier, data.result)
+
+	local post = {
+		id           = _postCounter,
+		authorName   = authorName,
+		playerName   = playerName,
+		postType     = postType,
+		caption      = caption,
+		furnitureKey = furniKey,
+		tier         = tier,
+		result       = data.result,
+		comments     = comments,
+		timestamp    = os.time(),
+	}
+
+	table.insert(_sessionPosts, 1, post)
+
+	if _TalkogramPost then
+		_TalkogramPost:FireAllClients(post)
+	end
+
+	print(("[Talkogram] New post by %s (%s) — %s"):format(authorName, postType, caption:sub(1, 60)))
 end
 
-local function loadGlobalFeed()
-	local ok, result = pcall(function()
-		return FeedStore:GetAsync("GlobalFeed")
-	end)
-	if ok and result and #result > 0 then
-		return result
-	end
-	return STUB_FEED
-end
-
--- ── Remote handlers ───────────────────────────────────────────────────────
+-- ── Init ──────────────────────────────────────────────────────────────────
 
 local function init(remotes)
+	_TalkogramPost = remotes:WaitForChild("TalkogramPost")
+
 	local RequestFeed = remotes:WaitForChild("RequestFeed")
+	RequestFeed.OnServerInvoke = function()
+		return _sessionPosts
+	end
+
+	-- Stub old remotes to suppress handler-not-set warnings
 	local RequestPost = remotes:WaitForChild("RequestPost")
 	local PostComment = remotes:WaitForChild("PostComment")
 	local LikePost    = remotes:WaitForChild("LikePost")
 
-	RequestFeed.OnServerInvoke = function(_player, mode)
-		if mode == "server" then
-			return _serverPosts
-		else
-			return loadGlobalFeed()
-		end
-	end
-
-	RequestPost.OnServerInvoke = function(_player, postId)
-		if type(postId) == "number" then
-			for _, post in ipairs(STUB_FEED) do
-				if post.id == postId then
-					local result = {
-						id       = post.id,
-						title    = post.title,
-						author   = post.author,
-						imageId  = post.imageId or 0,
-						likes    = post.likes,
-						comments = {},
-					}
-					for _, c in ipairs(post.comments or {}) do
-						table.insert(result.comments, c)
-					end
-					local extras = _extraComments[tostring(postId)]
-					if extras then
-						for _, c in ipairs(extras) do
-							table.insert(result.comments, c)
-						end
-					end
-					return result
-				end
-			end
-		end
-
-		if type(postId) == "string" then
-			for _, post in ipairs(_serverPosts) do
-				if post.id == postId then
-					local result = {
-						id       = post.id,
-						title    = post.title,
-						author   = post.author,
-						imageId  = post.imageId or 0,
-						likes    = post.likes or 0,
-						comments = {},
-					}
-					local extras = _extraComments[postId]
-					if extras then
-						for _, c in ipairs(extras) do
-							table.insert(result.comments, c)
-						end
-					end
-					return result
-				end
-			end
-
-			local ok, globalFeed = pcall(function()
-				return FeedStore:GetAsync("GlobalFeed")
-			end)
-			if ok and globalFeed then
-				for _, post in ipairs(globalFeed) do
-					if post.id == postId then
-						local result = {
-							id       = post.id,
-							title    = post.title,
-							author   = post.author,
-							imageId  = post.imageId or 0,
-							likes    = post.likes or 0,
-							comments = {},
-						}
-						local extras = _extraComments[postId]
-						if extras then
-							for _, c in ipairs(extras) do
-								table.insert(result.comments, c)
-							end
-						end
-						return result
-					end
-				end
-			end
-		end
-
-		return nil
-	end
-
-	PostComment.OnServerEvent:Connect(function(player, postId, text)
-		if type(text) ~= "string" then return end
-		text = text:sub(1, GameConfig.Talkogram.commentMaxLength)
-		if text == "" then return end
-		local key = tostring(postId)
-		if not _extraComments[key] then
-			_extraComments[key] = {}
-		end
-		table.insert(_extraComments[key], { author = player.Name, text = text })
-	end)
-
-	LikePost.OnServerEvent:Connect(function(_player, _postId)
-		-- Stub: full like tracking wired in later
-	end)
+	RequestPost.OnServerInvoke = function() return nil end
+	PostComment.OnServerEvent:Connect(function() end)
+	LikePost.OnServerEvent:Connect(function() end)
 end
 
 return {

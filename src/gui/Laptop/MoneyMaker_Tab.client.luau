@@ -32,6 +32,9 @@ local MoneyMaker_Tab  = playerGui
 local scrollFrame     = MoneyMaker_Tab:WaitForChild("JobListScroll")
 local jobCardTemplate = scrollFrame:WaitForChild("JobCardTemplate")
 
+scrollFrame.CanvasSize          = UDim2.fromOffset(0, 0)
+scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
 local LaptopRemotes          = ReplicatedStorage:WaitForChild("LaptopRemotes")
 local RequestJobs            = LaptopRemotes:WaitForChild("RequestJobs")
 local AcceptJob              = LaptopRemotes:WaitForChild("AcceptJob")

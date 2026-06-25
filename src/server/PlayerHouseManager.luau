@@ -58,6 +58,15 @@ local function assignHouse(player)
 		if _pool[i] == nil then
 			_pool[i] = player.UserId
 			_assignment[player] = { index = i, tier = 1 }
+			-- Enable the SpawnLocation and set it as the player's respawn point
+			local house = workspace:FindFirstChild("House_" .. i)
+			if house then
+				local spawn = house:FindFirstChildWhichIsA("SpawnLocation")
+				if spawn then
+					spawn.Enabled = true
+					player.RespawnLocation = spawn
+				end
+			end
 			print(("[PlayerHouseManager] %s → House_%d (Tier 1)"):format(player.Name, i))
 			return i
 		end
@@ -69,6 +78,15 @@ end
 local function releaseHouse(player)
 	local data = _assignment[player]
 	if not data then return end
+	-- Disable the SpawnLocation and clear the respawn point
+	local house = workspace:FindFirstChild("House_" .. data.index)
+	if house then
+		local spawn = house:FindFirstChildWhichIsA("SpawnLocation")
+		if spawn then
+			spawn.Enabled = false
+		end
+	end
+	player.RespawnLocation = nil
 	_pool[data.index] = nil
 	_assignment[player] = nil
 	print(("[PlayerHouseManager] Released House_%d from %s"):format(data.index, player.Name))
@@ -91,6 +109,15 @@ function PlayerHouseManager.SetTier(player, newTier)
 	local data = _assignment[player]
 	if not data then return end
 	data.tier = newTier
+	-- Update RespawnLocation in case the house model was swapped
+	local house = workspace:FindFirstChild("House_" .. data.index)
+	if house then
+		local spawn = house:FindFirstChildWhichIsA("SpawnLocation")
+		if spawn then
+			spawn.Enabled = true
+			player.RespawnLocation = spawn
+		end
+	end
 	print(("[PlayerHouseManager] %s upgraded to Tier %d"):format(player.Name, newTier))
 end
 

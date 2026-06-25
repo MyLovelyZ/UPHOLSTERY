@@ -35,6 +35,7 @@ remoteFunction("RequestFeed")
 remoteFunction("RequestPost")
 remote("PostComment")
 remote("LikePost")
+remote("TalkogramPost")    -- server → all clients when a job creates a new post
 
 -- Shop / inventory
 remoteFunction("RequestInventory")

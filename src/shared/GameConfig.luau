@@ -28,7 +28,7 @@ return {
 		tackSpawnGap       = 0.85,
 		perfectMinProgress = 0.72,
 		goodMinProgress    = 0.42,
-		perfectMinScore    = 0.78,
+		perfectMinScore    = 1.0,    -- every tack must be a Perfect hit; one Good = Good result
 		goodMinScore       = 0.45,
 	},
 
@@ -44,7 +44,7 @@ return {
 		barSpeed         = 0.62,
 		barSpeedRampUp   = 0.040,
 		timeLimit        = 30,
-		perfectMinRatio  = 0.75,
+		perfectMinRatio  = 1.0,     -- every staple must land in the perfect zone
 		goodMinRatio     = 0.38,
 	},
 
@@ -54,11 +54,11 @@ return {
 	SeamStitching = {
 		segmentCountMin         = 5,
 		segmentCountMax         = 7,
-		timePerSegment          = 9,
-		deviationTolerance      = 32,
-		perfectMaxDeviationFrac = 0.35,
-		goodMaxDeviationFrac    = 0.70,
-		missBudget              = 2.5,   -- seconds of full-overshoot tolerance before fail
+		timePerSegment          = 8,
+		deviationTolerance      = 24,
+		perfectMaxDeviationFrac = 0.25,
+		goodMaxDeviationFrac    = 0.58,
+		missBudget              = 2.0,   -- seconds of full-overshoot tolerance before fail
 		trailLength             = 36,
 	},
 
@@ -164,19 +164,50 @@ return {
 	},
 
 	-- One-line client flavor texts shown in the job details field.
+	-- Keyed by tier group: Casual (Starter/Mid), Upscale (Premium/Prestige), Elite (Exclusive/Elite/Special).
 	JobFlavorPool = {
-		"Customer needs this done before the weekend.",
-		"Handle with care — sentimental piece.",
-		"Quick turnaround required.",
-		"Client is very particular about fabric tension.",
-		"This was my late mother's. Please be gentle.",
-		"Going into a rental property — needs to hold up.",
-		"Needs to match the existing set.",
-		"Rush order. Tip possible.",
-		"Condition is worse than the photos suggest.",
-		"Client bought the fabric themselves.",
-		"Second attempt — first upholsterer botched it.",
-		"High-profile client. Discretion appreciated.",
+		Casual = {
+			"need this done before the weekend if possible pls",
+			"this was my gran's so please be careful with it",
+			"can you do it asap? kind of urgent",
+			"i'm really picky about fabric tension just so you know",
+			"this was my late mum's. please be gentle",
+			"it's going into a rental so just needs to hold up",
+			"has to match the rest of the set i have",
+			"rush job if you can, i'll tip",
+			"it's worse in person than the photos, fair warning",
+			"i already bought the fabric, just needs fitting",
+			"someone already tried this and made it worse. starting fresh",
+			"can we keep this low-key? don't want it shared around",
+		},
+		Upscale = {
+			"The original fabric is not to be replicated under any circumstances.",
+			"I sourced this from a boutique in Milan. Please treat it accordingly.",
+			"I'd prefer all restoration work done off-site if possible.",
+			"The leather needs to be an exact match to my existing set.",
+			"I expect every seam to be considered — this is a bespoke piece.",
+			"It sits in a curated room. The finish needs to be seamless.",
+			"My designer has specified the piping detail. I'll send the reference over.",
+			"This has been in my family. I trust you'll handle it with care.",
+			"I have the companion piece here for colour matching — it's essential.",
+			"I'll be away until Thursday. I need this completed before I'm back.",
+			"Someone else made a mess of this. I need it properly restored.",
+			"This is being photographed for a design feature next month.",
+		},
+		Elite = {
+			"This commission is to be treated with complete confidentiality.",
+			"The piece has been with my family for three generations. It is not replaceable.",
+			"The fabric was woven to order in Florence. There are no substitutes.",
+			"The piece is being auctioned. Its provenance must remain fully intact.",
+			"My interior architect will be present for the final inspection.",
+			"This is a diplomatic gift. I require perfection.",
+			"I expect full documentation of all work carried out.",
+			"The piece will be on display at my principal residence. Standards are accordingly high.",
+			"The original frame was crafted in Vienna. Any matching must honour that.",
+			"A written condition report is expected alongside the completed restoration.",
+			"The piece is required for a private function. The deadline is not flexible.",
+			"I do not accept compromise on commissions at this level.",
+		},
 	},
 
 	-- Per-tier rules: how many furniture pieces, which categories, minigame chain length.
@@ -286,8 +317,8 @@ return {
 			StapleGunning = { stapleCountMin=3, stapleCountMax=5, barSpeed=0.45,
 			                  goodZoneWidth=0.15, perfectZoneWidth=0.07 },
 			SeamStitching = { segmentCountMin=3, segmentCountMax=4,
-			                  deviationTolerance=48, timePerSegment=12,
-			                  missBudget=4.0, perfectMaxDeviationFrac=0.55, goodMaxDeviationFrac=0.88 },
+			                  deviationTolerance=38, timePerSegment=10,
+			                  missBudget=3.0, perfectMaxDeviationFrac=0.42, goodMaxDeviationFrac=0.72 },
 			FoamPadding   = { pieceCount=3, timeLimit=65, perfectMinRatio=1.0, goodMinRatio=0.67 },
 		},
 		Medium = {

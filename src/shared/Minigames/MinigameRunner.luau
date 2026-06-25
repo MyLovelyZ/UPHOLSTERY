@@ -267,20 +267,36 @@ function MinigameRunner.RunChain(minigameNames, config)
 	return results
 end
 
--- Collapse chain: worst result wins. Fail < Pass < Good < Perfect.
+-- Collapse results into one job outcome.
+-- Perfect rule: no failures AND at least ceil(2/3) of results are Perfect → job is Perfect.
+-- Otherwise: worst result wins (Fail < Pass < Good < Perfect).
 function MinigameRunner.CollapseChainResult(results)
 	local ORDER = { Fail = 0, Pass = 1, Good = 2, Perfect = 3 }
-	local lowest = 3
+	local n = #results
+	if n == 0 then return "Pass" end
+
+	local perfectCount = 0
+	local hasFailure   = false
+	local lowest       = 3
+
 	for _, r in ipairs(results) do
-		local rank = ORDER[r]
-		if rank ~= nil and rank < lowest then
-			lowest = rank
+		local rank = ORDER[r] or 1
+		if rank < lowest then lowest = rank end
+		if r == "Perfect" then
+			perfectCount = perfectCount + 1
+		elseif r == "Fail" then
+			hasFailure = true
 		end
 	end
+
+	-- 2/3 Perfect rule: no fails, and at least ceil(n * 2/3) results are Perfect
+	if not hasFailure and perfectCount >= math.ceil(n * (2 / 3)) then
+		return "Perfect"
+	end
+
+	-- Worst-result fallback
 	for tier, rank in pairs(ORDER) do
-		if rank == lowest then
-			return tier
-		end
+		if rank == lowest then return tier end
 	end
 	return "Pass"
 end

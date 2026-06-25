@@ -122,21 +122,19 @@ local function init(remotes, locationManager, radiantJobGen, savePost)
 		_activeJobs[jobId]       = nil
 		_playerActiveJob[player] = nil
 
+		local pd           = player:FindFirstChild("PlayerData")
 		local followerGain = 0
+
 		if TIER_TITLES[result] then
-			local pd = player:FindFirstChild("PlayerData")
+			-- Pass / Good / Perfect: award pay, followers, positive rep
 			if pd then
 				local usdVal = pd:FindFirstChild("usd")
-				if usdVal then
-					usdVal.Value = usdVal.Value + job.pay
-				end
+				if usdVal then usdVal.Value = usdVal.Value + job.pay end
 
 				local resultBonus = GameConfig.Followers.minigameBonus[result] or 0
 				followerGain      = math.floor(job.followers * (1 + resultBonus))
 				local follVal     = pd:FindFirstChild("followers")
-				if follVal then
-					follVal.Value = follVal.Value + followerGain
-				end
+				if follVal then follVal.Value = follVal.Value + followerGain end
 
 				local repCfg = GameConfig.Reputation
 				local repVal = pd:FindFirstChild("reputation")
@@ -146,27 +144,35 @@ local function init(remotes, locationManager, radiantJobGen, savePost)
 				end
 			end
 
-			local timestamp = os.time()
-			local postId    = tostring(player.UserId) .. "_" .. tostring(timestamp)
-
-			local post = {
-				id        = postId,
-				author    = player.Name,
-				authorId  = player.UserId,
-				jobId     = job.id,
-				jobName   = job.name,
-				imageId   = job.imageId,
-				title     = string.format(TIER_TITLES[result], job.name),
-				result    = result,
-				timestamp = timestamp,
-				likes     = 0,
-				comments  = {},
-			}
-
-			savePost(post)
+			savePost({
+				playerName   = player.Name,
+				postType     = "success",
+				result       = result,
+				furnitureKey = locationManager.GetActualFurnitureKey(player) or (job.furniture and job.furniture[1]),
+				tier         = job.tier,
+			})
 			print(("[JobPool] %s | Pay +$%d | Followers +%d | %s"):format(
 				player.Name, job.pay, followerGain, result
 			))
+		else
+			-- Fail: apply rep penalty, post as angry customer
+			if pd then
+				local repCfg = GameConfig.Reputation
+				local repVal = pd:FindFirstChild("reputation")
+				if repVal then
+					local delta = repCfg.gain[result] or 0
+					repVal.Value = math.clamp(repVal.Value + delta, repCfg.minValue, repCfg.maxValue)
+				end
+			end
+
+			savePost({
+				playerName   = player.Name,
+				postType     = "fail",
+				result       = "Fail",
+				furnitureKey = locationManager.GetActualFurnitureKey(player) or (job.furniture and job.furniture[1]),
+				tier         = job.tier,
+			})
+			print(("[JobPool] %s | Fail | Rep penalty"):format(player.Name))
 		end
 
 		locationManager.Release(player)
@@ -174,6 +180,8 @@ local function init(remotes, locationManager, radiantJobGen, savePost)
 
 	AbandonJob.OnServerEvent:Connect(function(player)
 		local jobId = _playerActiveJob[player]
+		local job   = jobId and _activeJobs[jobId] and _activeJobs[jobId].job
+
 		if jobId then
 			_activeJobs[jobId]       = nil
 			_playerActiveJob[player] = nil
@@ -186,6 +194,16 @@ local function init(remotes, locationManager, radiantJobGen, savePost)
 				local repCfg = GameConfig.Reputation
 				repVal.Value = math.clamp(repVal.Value + repCfg.gain.Abandon, repCfg.minValue, repCfg.maxValue)
 			end
+		end
+
+		if job then
+			savePost({
+				playerName   = player.Name,
+				postType     = "abandon",
+				result       = "Abandon",
+				furnitureKey = locationManager.GetActualFurnitureKey(player) or (job.furniture and job.furniture[1]),
+				tier         = job.tier or "Starter",
+			})
 		end
 
 		locationManager.Release(player)

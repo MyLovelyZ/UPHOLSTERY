@@ -122,6 +122,7 @@ local _minigameActive  = false  -- guard: only one minigame runs at a time
 local _firstHubTeleport = true  -- loading screen covers the first arrival; skip irisClose
 local _slotModel     = nil   -- parent of cloneList[1]; used for door highlight
 local _doorHighlight = nil
+local _cloneList     = {}   -- furniture Model refs for the current job (indexed by pieceIndex)
 
 -- ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -132,6 +133,72 @@ end
 
 local function hideHUD()
 	hudLabel.Visible = false
+end
+
+local function spawnPoof(model)
+	local cf, sz
+	pcall(function() cf, sz = model:GetBoundingBox() end)
+	if not cf then cf = model:GetPivot(); sz = Vector3.new(2, 1, 2) end
+	local center  = cf.Position
+	local maxDim  = math.max(sz.X, sz.Y, sz.Z)
+	local minDim  = math.min(sz.X, sz.Y, sz.Z)
+	local rng     = Random.new()
+
+	local COLORS = {
+		Color3.fromRGB(255, 255, 255),
+		Color3.fromRGB(200, 235, 255),
+		Color3.fromRGB(255, 235, 160),
+		Color3.fromRGB(180, 255, 200),
+		Color3.fromRGB(255, 200, 230),
+	}
+
+	-- Neon white flash that swells to engulf the whole model then vanishes
+	local flash = Instance.new("Part")
+	flash.Shape        = Enum.PartType.Ball
+	flash.Size         = Vector3.new(minDim * 0.3, minDim * 0.3, minDim * 0.3)
+	flash.Anchored     = true
+	flash.CanCollide   = false
+	flash.CastShadow   = false
+	flash.Material     = Enum.Material.Neon
+	flash.Color        = Color3.fromRGB(255, 255, 255)
+	flash.Transparency = 0.1
+	flash.Position     = center
+	flash.Parent       = workspace
+	TweenService:Create(flash,
+		TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Size = Vector3.new(maxDim * 3, maxDim * 3, maxDim * 3), Transparency = 1 }
+	):Play()
+	task.delay(0.25, function() if flash.Parent then flash:Destroy() end end)
+
+	-- 14 puff balls scattered across the full furniture footprint
+	for i = 1, 14 do
+		local p = Instance.new("Part")
+		p.Shape        = Enum.PartType.Ball
+		p.Size         = Vector3.new(minDim * 0.25, minDim * 0.25, minDim * 0.25)
+		p.Anchored     = true
+		p.CanCollide   = false
+		p.CastShadow   = false
+		p.Material     = Enum.Material.SmoothPlastic
+		p.Color        = COLORS[(i - 1) % #COLORS + 1]
+		p.Transparency = 0.05
+		p.Position     = center + Vector3.new(
+			rng:NextNumber(-sz.X * 0.55, sz.X * 0.55),
+			rng:NextNumber(-sz.Y * 0.3,  sz.Y * 0.5),
+			rng:NextNumber(-sz.Z * 0.55, sz.Z * 0.55)
+		)
+		p.Parent = workspace
+		local finalSize = maxDim * rng:NextNumber(0.8, 1.1)
+		local drift = Vector3.new(
+			rng:NextNumber(-sz.X * 0.7, sz.X * 0.7),
+			rng:NextNumber(sz.Y * 0.9,  sz.Y * 2.2),
+			rng:NextNumber(-sz.Z * 0.7, sz.Z * 0.7)
+		)
+		TweenService:Create(p,
+			TweenInfo.new(rng:NextNumber(0.45, 0.65), Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ Size = Vector3.new(finalSize, finalSize, finalSize), Transparency = 1, Position = p.Position + drift }
+		):Play()
+		task.delay(0.7, function() if p.Parent then p:Destroy() end end)
+	end
 end
 
 local function moveCharacter(cframe)
@@ -171,7 +238,8 @@ TeleportToLocation.OnClientEvent:Connect(function(cframe, job, cloneList, locati
 		_locationName  = locationName and locationName:gsub("(%l)(%u)", "%1 %2") or (job.name or "?")
 		_multiPiece    = _totalPieces > 1
 		clearAllHighlights()
-		_slotModel = cloneList and cloneList[1] and cloneList[1].Parent
+		_slotModel  = cloneList and cloneList[1] and cloneList[1].Parent
+		_cloneList  = cloneList or {}
 		moveCharacter(cframe)
 		RunService.Heartbeat:Wait()
 
@@ -215,7 +283,8 @@ TeleportToLocation.OnClientEvent:Connect(function(cframe, job, cloneList, locati
 					MinigameRunner.Cancel()
 					task.wait()  -- yield so the cancelled coroutine can clean up
 				end
-				if _repairedCount > 0 then
+				-- Only submit if ALL pieces are repaired; partial completion = abandon
+				if _repairedCount >= _totalPieces and _totalPieces > 0 then
 					local resultList = {}
 					for idx = 1, _totalPieces do
 						if _pieceResults[idx] then
@@ -256,6 +325,7 @@ StartMinigame.OnClientEvent:Connect(function(pieceIndex)
 	if _pieceResults[pieceIndex] ~= nil then return end  -- already repaired
 	if _minigameActive then return end                   -- another minigame is running
 	_minigameActive = true
+	PPS.MaxPromptsVisible = 0
 
 	if _highlights[pieceIndex] then
 		_highlights[pieceIndex]:Destroy()
@@ -292,6 +362,7 @@ StartMinigame.OnClientEvent:Connect(function(pieceIndex)
 
 	-- Restore movement
 	if humanoid then humanoid.WalkSpeed = savedWalkSpeed; humanoid.JumpHeight = savedJumpHeight end
+	PPS.MaxPromptsVisible = 1
 	_minigameActive = false
 
 	-- nil result means the minigame was cancelled via the door — don't count this piece
@@ -300,7 +371,9 @@ StartMinigame.OnClientEvent:Connect(function(pieceIndex)
 	_pieceResults[pieceIndex] = result
 	_repairedCount += 1
 	SFX.Play("FurnitureFixed")
+	local poofModel = _cloneList[pieceIndex]
 	FurniturePieceRepaired:FireServer(pieceIndex)
+	if poofModel and poofModel.Parent then spawnPoof(poofModel) end
 
 	if _repairedCount >= _totalPieces then
 		showHUD("✅ " .. _locationName .. "  |  all done!  ·  use the door to leave")

@@ -240,6 +240,15 @@ function LocationManager.GetLocationsByTier()
 	return result
 end
 
+-- Returns the first furniture key actually placed in the player's current slot.
+-- For tag-based slots this reflects the Repairable model's FurnitureKey attribute,
+-- not job.furniture which may be a generic placeholder set by RadiantJobGenerator.
+function LocationManager.GetActualFurnitureKey(player)
+	local assignment = _playerAssignment[player]
+	if not assignment then return nil end
+	return assignment.furnitureKeys and assignment.furnitureKeys[1] or nil
+end
+
 function LocationManager.GetAvailableTiers()
 	local tiers = {}
 	for tier, names in pairs(_locationsByTier) do
